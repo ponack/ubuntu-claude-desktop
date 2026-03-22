@@ -202,8 +202,8 @@ ubuntu-claude-desktop/
 - [x] Clipboard-aware paste (images)
 - [x] Desktop notifications for completed responses
 - [x] URI protocol handler (claude://ask?q=...)
-- [ ] Quick-ask floating overlay window
-- [ ] DBus interface for scripting/automation
+- [x] Quick-ask floating overlay window (Super+Shift+Q)
+- [x] DBus interface for scripting/automation
 
 ### Phase 6 — Workflows & Productivity
 - [ ] Conversation branching (fork at any message)

@@ -1,5 +1,6 @@
 <script>
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
   import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
@@ -14,6 +15,7 @@
   let deepLinkText = $state("");
 
   const SUMMON_SHORTCUT = "Super+Shift+C";
+  const QUICKASK_SHORTCUT = "Super+Shift+Q";
 
   onMount(async () => {
     try {
@@ -47,6 +49,14 @@
     }
 
     try {
+      await register(QUICKASK_SHORTCUT, () => {
+        invoke("toggle_quickask");
+      });
+    } catch (e) {
+      console.error("Failed to register quick-ask shortcut:", e);
+    }
+
+    try {
       await onOpenUrl((urls) => {
         for (const url of urls) {
           try {
@@ -67,10 +77,18 @@
     } catch (e) {
       console.error("Failed to register deep link handler:", e);
     }
+
+    // Listen for DBus ask events
+    listen("dbus-ask", (event) => {
+      activeConversationId = null;
+      currentView = "chat";
+      deepLinkText = event.payload;
+    });
   });
 
   onDestroy(async () => {
     try { await unregister(SUMMON_SHORTCUT); } catch (_) {}
+    try { await unregister(QUICKASK_SHORTCUT); } catch (_) {}
   });
 
   function onSelectConversation(id) {
