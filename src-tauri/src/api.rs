@@ -927,6 +927,7 @@ pub async fn restart_app(_app: tauri::AppHandle) -> Result<(), String> {
 
     // Write a script that waits for this process to die, then launches the new one
     // Exports display env vars so the GUI app can connect to the display server
+    // The script also strips " (deleted)" as a safety net for older versions
     let script = format!(
         r#"#!/bin/sh
 exec > /tmp/ucd-restart.log 2>&1
@@ -934,11 +935,12 @@ export DISPLAY="{display}"
 export WAYLAND_DISPLAY="{wayland}"
 export XDG_RUNTIME_DIR="{xdg_runtime}"
 export DBUS_SESSION_BUS_ADDRESS="{dbus}"
+EXE_PATH=$(echo "{exe_str}" | sed 's/ (deleted)$//')
 echo "Waiting for PID {pid} to exit..."
 while kill -0 {pid} 2>/dev/null; do sleep 0.2; done
-echo "PID {pid} exited, launching {exe_str}"
+echo "PID {pid} exited, launching $EXE_PATH"
 sleep 0.5
-exec "{exe_str}"
+exec "$EXE_PATH"
 "#,
         display = display,
         wayland = wayland,
