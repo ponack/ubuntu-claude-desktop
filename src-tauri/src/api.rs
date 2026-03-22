@@ -931,22 +931,11 @@ pub async fn restart_app(_app: tauri::AppHandle) -> Result<(), String> {
     let exe_str = exe.to_string_lossy().replace(" (deleted)", "");
     let pid = std::process::id();
 
-    // Capture environment variables the GUI needs to connect to the display server
-    let display = std::env::var("DISPLAY").unwrap_or_default();
-    let wayland = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
-    let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
-    let dbus = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
-
     // Write a script that waits for this process to die, then launches the new one
-    // Exports display env vars so the GUI app can connect to the display server
-    // The script also strips " (deleted)" as a safety net for older versions
+    // The script strips " (deleted)" as a safety net for older versions
     let script = format!(
         r#"#!/bin/sh
 exec > /tmp/ucd-restart.log 2>&1
-export DISPLAY="{display}"
-export WAYLAND_DISPLAY="{wayland}"
-export XDG_RUNTIME_DIR="{xdg_runtime}"
-export DBUS_SESSION_BUS_ADDRESS="{dbus}"
 EXE_PATH=$(echo "{exe_str}" | sed 's/ (deleted)$//')
 echo "Waiting for PID {pid} to exit..."
 while kill -0 {pid} 2>/dev/null; do sleep 0.2; done
@@ -954,24 +943,25 @@ echo "PID {pid} exited, launching $EXE_PATH"
 sleep 0.5
 exec "$EXE_PATH"
 "#,
-        display = display,
-        wayland = wayland,
-        xdg_runtime = xdg_runtime,
-        dbus = dbus,
         pid = pid,
         exe_str = exe_str,
     );
-    let script_path = "/tmp/ucd-restart.sh";
-    std::fs::write(script_path, &script)
+    let script_path = format!("/tmp/ucd-restart-{}.sh", pid);
+    std::fs::write(&script_path, &script)
         .map_err(|e| format!("Failed to write restart script: {}", e))?;
 
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(script_path, std::fs::Permissions::from_mode(0o755))
+    std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))
         .map_err(|e| format!("Failed to set script permissions: {}", e))?;
 
     // Launch the script in a new session so it survives parent exit
+    // Pass display env vars via the process environment (not inlined in script) to avoid shell injection
     std::process::Command::new("setsid")
-        .arg(script_path)
+        .arg(&script_path)
+        .env("DISPLAY", std::env::var("DISPLAY").unwrap_or_default())
+        .env("WAYLAND_DISPLAY", std::env::var("WAYLAND_DISPLAY").unwrap_or_default())
+        .env("XDG_RUNTIME_DIR", std::env::var("XDG_RUNTIME_DIR").unwrap_or_default())
+        .env("DBUS_SESSION_BUS_ADDRESS", std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -1011,7 +1001,8 @@ pub struct AppInfo {
 /// Capture a screenshot region and return its base64 data
 #[tauri::command]
 pub async fn capture_screenshot() -> Result<ScreenshotResult, String> {
-    let tmp_path = "/tmp/ucd-screenshot.png";
+    let tmp_path = format!("/tmp/ucd-screenshot-{}.png", uuid::Uuid::new_v4());
+    let tmp_path = tmp_path.as_str();
 
     // Try gnome-screenshot first (most common on Ubuntu), then flameshot, then import (ImageMagick)
     let tools: Vec<(&str, Vec<&str>)> = vec![

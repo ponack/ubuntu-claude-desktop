@@ -52,7 +52,7 @@
           try {
             const parsed = new URL(url);
             if (parsed.pathname === "ask" || parsed.pathname === "/ask") {
-              const q = parsed.searchParams.get("q");
+              const q = parsed.searchParams.get("q")?.slice(0, 10000);
               if (q) {
                 activeConversationId = null;
                 currentView = "chat";
