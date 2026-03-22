@@ -277,6 +277,8 @@
     max-width: 600px;
     margin: 0 auto;
     width: 100%;
+    height: 100%;
+    overflow-y: auto;
   }
 
   .settings-header {

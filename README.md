@@ -130,12 +130,12 @@ ubuntu-claude-desktop/
 - [x] System tray integration
 - [x] LaTeX/math rendering
 
-### Phase 3 — Power Features
-- [ ] Artifacts (sandboxed HTML/React preview)
-- [ ] MCP (Model Context Protocol) support
-- [ ] Project folders with persistent context
-- [ ] Export conversations (Markdown/JSON)
-- [ ] Auto-update mechanism
+### Phase 3 — Power Features ✅
+- [x] Artifacts (sandboxed HTML/SVG preview)
+- [x] MCP (Model Context Protocol) support
+- [x] Project folders with persistent context
+- [x] Export conversations (Markdown/JSON)
+- [x] Auto-update mechanism
 
 ### Phase 4 — Beyond Official
 - [ ] Local model support (Ollama)
@@ -143,6 +143,26 @@ ubuntu-claude-desktop/
 - [ ] Plugin system
 - [ ] Custom CSS themes
 - [ ] Prompt library/templates
+
+### Phase 5 — Desktop Integration
+- [ ] Global hotkey to summon app (Super+Shift+C)
+- [ ] Screenshot-to-Claude (capture region, send via vision API)
+- [ ] Drag-and-drop file attachments
+- [ ] Clipboard-aware paste (images, code detection)
+- [ ] Desktop notifications for completed responses
+- [ ] Quick-ask floating overlay window
+- [ ] DBus interface for scripting/automation
+- [ ] URI protocol handler (claude://)
+
+### Phase 6 — Workflows & Productivity
+- [ ] Conversation branching (fork at any message)
+- [ ] Prompt library/templates with variable placeholders
+- [ ] Command palette (Ctrl+P)
+- [ ] Agent mode (multi-step autonomous task execution)
+- [ ] Scheduled/recurring prompts
+- [ ] Workspace profiles (per-project API keys, models, prompts)
+- [ ] Conversation analytics and token usage tracking
+- [ ] Multi-window support
 
 ## Tech Stack
 
