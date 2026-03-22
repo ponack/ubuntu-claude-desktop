@@ -918,10 +918,33 @@ pub async fn restart_app(_app: tauri::AppHandle) -> Result<(), String> {
     let exe_str = exe.to_string_lossy().to_string();
     let pid = std::process::id();
 
+    // Capture environment variables the GUI needs to connect to the display server
+    let display = std::env::var("DISPLAY").unwrap_or_default();
+    let wayland = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+    let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
+    let dbus = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
+
     // Write a script that waits for this process to die, then launches the new one
+    // Exports display env vars so the GUI app can connect to the display server
     let script = format!(
-        "#!/bin/sh\nwhile kill -0 {} 2>/dev/null; do sleep 0.2; done\nsleep 0.5\nexec \"{}\"\n",
-        pid, exe_str
+        r#"#!/bin/sh
+exec > /tmp/ucd-restart.log 2>&1
+export DISPLAY="{display}"
+export WAYLAND_DISPLAY="{wayland}"
+export XDG_RUNTIME_DIR="{xdg_runtime}"
+export DBUS_SESSION_BUS_ADDRESS="{dbus}"
+echo "Waiting for PID {pid} to exit..."
+while kill -0 {pid} 2>/dev/null; do sleep 0.2; done
+echo "PID {pid} exited, launching {exe_str}"
+sleep 0.5
+exec "{exe_str}"
+"#,
+        display = display,
+        wayland = wayland,
+        xdg_runtime = xdg_runtime,
+        dbus = dbus,
+        pid = pid,
+        exe_str = exe_str,
     );
     let script_path = "/tmp/ucd-restart.sh";
     std::fs::write(script_path, &script)
@@ -931,9 +954,8 @@ pub async fn restart_app(_app: tauri::AppHandle) -> Result<(), String> {
     std::fs::set_permissions(script_path, std::fs::Permissions::from_mode(0o755))
         .map_err(|e| format!("Failed to set script permissions: {}", e))?;
 
-    // Launch the script in a fully detached session via nohup + setsid
-    std::process::Command::new("nohup")
-        .arg("setsid")
+    // Launch the script in a new session so it survives parent exit
+    std::process::Command::new("setsid")
         .arg(script_path)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
