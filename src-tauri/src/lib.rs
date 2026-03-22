@@ -1,5 +1,6 @@
 mod api;
 mod db;
+mod dbus_service;
 mod mcp;
 mod providers;
 
@@ -62,13 +63,22 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Start DBus service for external scripting
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                dbus_service::start_dbus_service(app_handle).await;
+            });
+
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Hide to tray instead of quitting
-                let _ = window.hide();
-                api.prevent_close();
+                if window.label() == "main" {
+                    // Hide main window to tray instead of quitting
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
+                // Other windows (quickask) close normally
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -82,6 +92,7 @@ pub fn run() {
             api::get_app_info,
             api::run_custom_command,
             api::capture_screenshot,
+            api::toggle_quickask,
             providers::fetch_ollama_models,
             db::get_conversations,
             db::get_messages,

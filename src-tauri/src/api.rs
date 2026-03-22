@@ -1042,3 +1042,32 @@ pub struct ScreenshotResult {
     pub data: String,
     pub media_type: String,
 }
+
+/// Toggle the quick-ask overlay window
+#[tauri::command]
+pub async fn toggle_quickask(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("quickask") {
+        if win.is_visible().unwrap_or(false) {
+            win.hide().map_err(|e| e.to_string())?;
+        } else {
+            win.show().map_err(|e| e.to_string())?;
+            win.set_focus().map_err(|e| e.to_string())?;
+        }
+    } else {
+        let win = tauri::WebviewWindowBuilder::new(
+            &app,
+            "quickask",
+            tauri::WebviewUrl::App("index.html?quickask".into()),
+        )
+        .title("Quick Ask")
+        .inner_size(600.0, 400.0)
+        .resizable(true)
+        .always_on_top(true)
+        .decorations(true)
+        .center()
+        .build()
+        .map_err(|e| e.to_string())?;
+        win.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
