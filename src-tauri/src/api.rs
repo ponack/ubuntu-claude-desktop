@@ -42,8 +42,9 @@ struct StreamEvent {
 
 #[derive(Debug, Deserialize)]
 pub struct Attachment {
-    path: String,
+    path: Option<String>,
     media_type: String,
+    data: Option<String>,
 }
 
 fn encode_file_to_base64(path: &str) -> Result<String, String> {
@@ -59,7 +60,14 @@ fn build_content_blocks(text: &str, attachments: &[Attachment]) -> serde_json::V
     let mut blocks: Vec<serde_json::Value> = Vec::new();
 
     for att in attachments {
-        if let Ok(data) = encode_file_to_base64(&att.path) {
+        let b64 = if let Some(ref data) = att.data {
+            Some(data.clone())
+        } else if let Some(ref path) = att.path {
+            encode_file_to_base64(path).ok()
+        } else {
+            None
+        };
+        if let Some(data) = b64 {
             blocks.push(serde_json::json!({
                 "type": "image",
                 "source": {
@@ -169,10 +177,14 @@ pub async fn send_message(
         content.clone()
     } else {
         let filenames: Vec<String> = atts.iter().map(|a| {
-            std::path::Path::new(&a.path)
-                .file_name()
-                .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_else(|| "file".to_string())
+            if let Some(ref path) = a.path {
+                std::path::Path::new(path)
+                    .file_name()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "image".to_string())
+            } else {
+                "pasted-image".to_string()
+            }
         }).collect();
         format!("[Attached: {}]\n{}", filenames.join(", "), content)
     };
@@ -994,4 +1006,48 @@ pub struct AppInfo {
     pub version: String,
     pub arch: String,
     pub os: String,
+}
+
+/// Capture a screenshot region and return its base64 data
+#[tauri::command]
+pub async fn capture_screenshot() -> Result<ScreenshotResult, String> {
+    let tmp_path = "/tmp/ucd-screenshot.png";
+
+    // Try gnome-screenshot first (most common on Ubuntu), then flameshot, then import (ImageMagick)
+    let tools: Vec<(&str, Vec<&str>)> = vec![
+        ("gnome-screenshot", vec!["-a", "-f", tmp_path]),
+        ("flameshot", vec!["gui", "--raw", "-p", tmp_path]),
+        ("import", vec![tmp_path]),
+    ];
+
+    let mut captured = false;
+    for (cmd, args) in &tools {
+        if let Ok(status) = std::process::Command::new(cmd)
+            .args(args)
+            .status()
+        {
+            if status.success() && std::path::Path::new(tmp_path).exists() {
+                captured = true;
+                break;
+            }
+        }
+    }
+
+    if !captured {
+        return Err("No screenshot tool available. Install gnome-screenshot, flameshot, or imagemagick.".to_string());
+    }
+
+    let data = encode_file_to_base64(tmp_path)?;
+    let _ = std::fs::remove_file(tmp_path);
+
+    Ok(ScreenshotResult {
+        data,
+        media_type: "image/png".to_string(),
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct ScreenshotResult {
+    pub data: String,
+    pub media_type: String,
 }
