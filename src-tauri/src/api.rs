@@ -11,6 +11,22 @@ const GITHUB_RELEASES_URL: &str = "https://api.github.com/repos/ponack/ubuntu-cl
 
 static STOP_FLAG: AtomicBool = AtomicBool::new(false);
 
+/// Compare semver strings: returns true if `latest` is newer than `current`
+fn version_is_newer(latest: &str, current: &str) -> bool {
+    let parse = |v: &str| -> Vec<u64> {
+        v.split('.').filter_map(|p| p.parse().ok()).collect()
+    };
+    let l = parse(latest);
+    let c = parse(current);
+    for i in 0..l.len().max(c.len()) {
+        let lv = l.get(i).copied().unwrap_or(0);
+        let cv = c.get(i).copied().unwrap_or(0);
+        if lv > cv { return true; }
+        if lv < cv { return false; }
+    }
+    false
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ApiMessage {
     role: String,
@@ -773,7 +789,7 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
         .unwrap_or("")
         .to_string();
 
-    let has_update = !latest_tag.is_empty() && latest_tag != CURRENT_VERSION;
+    let has_update = !latest_tag.is_empty() && version_is_newer(&latest_tag, CURRENT_VERSION);
 
     Ok(UpdateInfo {
         has_update,
