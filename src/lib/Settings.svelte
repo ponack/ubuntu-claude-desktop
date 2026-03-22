@@ -564,12 +564,13 @@
 
 <style>
   .settings {
-    padding: 24px;
-    max-width: 600px;
+    padding: 24px 32px;
+    max-width: 640px;
     margin: 0 auto;
     width: 100%;
     height: 100%;
     overflow-y: auto;
+    box-sizing: border-box;
   }
 
   .settings-header {
@@ -615,6 +616,8 @@
     font-size: 14px;
     outline: none;
     transition: border-color 0.15s;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   textarea {
@@ -629,6 +632,8 @@
     line-height: 1.5;
     color: var(--text-primary);
     transition: border-color 0.15s;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .code-textarea {
