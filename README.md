@@ -17,6 +17,35 @@
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="screenshots/empty-state.png" alt="Welcome screen" width="700" />
+</p>
+<p align="center"><em>Clean welcome screen with quick-start instructions</em></p>
+
+<p align="center">
+  <img src="screenshots/chat.png" alt="Chat with code highlighting" width="700" />
+</p>
+<p align="center"><em>Streaming chat with syntax-highlighted code blocks</em></p>
+
+<p align="center">
+  <img src="screenshots/sidebar.png" alt="Conversation sidebar" width="700" />
+</p>
+<p align="center"><em>Conversation history with search and management</em></p>
+
+<p align="center">
+  <img src="screenshots/settings.png" alt="Settings panel" width="700" />
+</p>
+<p align="center"><em>Multi-provider settings — Anthropic, OpenAI, or Ollama</em></p>
+
+<p align="center">
+  <img src="screenshots/theme.png" alt="Custom CSS themes" width="700" />
+</p>
+<p align="center"><em>Custom CSS themes with built-in presets</em></p>
+
+---
+
 ## Why?
 
 Anthropic's official Claude Desktop app is available for macOS and Windows, but not Linux. Ubuntu Claude Desktop fills that gap with a native, lightweight alternative that uses the Anthropic API directly.
