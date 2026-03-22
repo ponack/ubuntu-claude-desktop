@@ -910,20 +910,40 @@ pub async fn install_update(deb_path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Restart the application by spawning the new binary and exiting
+/// Restart the application by spawning a detached new process and exiting
 #[tauri::command]
 pub async fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
-    // Get the path to our own executable
     let exe = std::env::current_exe()
         .map_err(|e| format!("Failed to get executable path: {}", e))?;
 
-    // Spawn the new process detached
-    std::process::Command::new(&exe)
+    // Use setsid to fully detach the child from this process group
+    // so it survives when the parent exits
+    std::process::Command::new("setsid")
+        .arg(&exe)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to restart: {}", e))?;
 
-    // Exit the current process
     app.exit(0);
 
     Ok(())
+}
+
+/// Get app info for the About section
+#[tauri::command]
+pub fn get_app_info() -> Result<AppInfo, String> {
+    Ok(AppInfo {
+        version: CURRENT_VERSION.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        os: std::env::consts::OS.to_string(),
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct AppInfo {
+    pub version: String,
+    pub arch: String,
+    pub os: String,
 }

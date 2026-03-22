@@ -48,6 +48,10 @@
   // Update settings
   let updateInterval = $state("startup");
 
+  // About
+  let appVersion = $state("");
+  let appArch = $state("");
+
   const anthropicModels = [
     { id: "claude-opus-4-6", name: "Claude Opus 4.6 (Most capable)" },
     { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (Balanced)" },
@@ -86,6 +90,12 @@
       await loadPrompts();
       await loadCustomCommands();
       updateInterval = await invoke("get_update_interval");
+
+      try {
+        const info = await invoke("get_app_info");
+        appVersion = info.version;
+        appArch = info.arch;
+      } catch (_) {}
 
       if (provider === "ollama") {
         fetchOllamaModels();
@@ -602,6 +612,17 @@
     <button class="save-btn" onclick={save}>
       {saved ? "Saved!" : "Save Settings"}
     </button>
+
+    <div class="about-section">
+      <h3>About</h3>
+      <div class="about-info">
+        <span>Version: <strong>{appVersion || "..."}</strong></span>
+        <span>Architecture: <strong>{appArch || "..."}</strong></span>
+        <a href="https://github.com/ponack/ubuntu-claude-desktop" target="_blank" rel="noopener noreferrer">
+          GitHub Repository
+        </a>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -760,4 +781,34 @@
   .small-btn.accent:disabled { opacity: 0.4; cursor: not-allowed; }
   .small-btn.danger { color: var(--danger); border-color: var(--danger); }
   .small-btn.danger:hover { background: rgba(233, 69, 96, 0.1); }
+
+  .about-section {
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+
+  .about-section h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--text-secondary);
+  }
+
+  .about-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .about-info a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .about-info a:hover {
+    text-decoration: underline;
+  }
 </style>
