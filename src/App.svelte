@@ -8,11 +8,13 @@
   import Sidebar from "./lib/Sidebar.svelte";
   import Chat from "./lib/Chat.svelte";
   import Settings from "./lib/Settings.svelte";
+  import CommandPalette from "./lib/CommandPalette.svelte";
 
   let currentView = $state("chat");
   let activeConversationId = $state(null);
   let sidebarRefresh = $state(0);
   let deepLinkText = $state("");
+  let showCommandPalette = $state(false);
 
   const SUMMON_SHORTCUT = "Super+Shift+C";
   const QUICKASK_SHORTCUT = "Super+Shift+Q";
@@ -126,6 +128,12 @@
       if (currentView === "settings") closeSettings();
       else openSettings();
     }
+    // Ctrl+P: Command palette
+    if (e.ctrlKey && e.key === "p") {
+      e.preventDefault();
+      showCommandPalette = !showCommandPalette;
+      return;
+    }
     // Ctrl+L: Focus chat input
     if (e.ctrlKey && e.key === "l") {
       e.preventDefault();
@@ -138,9 +146,11 @@
       const search = document.querySelector(".search-box input");
       if (search) search.focus();
     }
-    // Escape: Close settings or clear search
+    // Escape: Close palette, settings, or clear search
     if (e.key === "Escape") {
-      if (currentView === "settings") {
+      if (showCommandPalette) {
+        showCommandPalette = false;
+      } else if (currentView === "settings") {
         closeSettings();
       }
     }
@@ -169,6 +179,15 @@
     {/if}
   </main>
 </div>
+
+{#if showCommandPalette}
+  <CommandPalette
+    onClose={() => (showCommandPalette = false)}
+    onSelectConversation={onSelectConversation}
+    onNewChat={onNewChat}
+    onOpenSettings={openSettings}
+  />
+{/if}
 
 <style>
   .app-layout {
