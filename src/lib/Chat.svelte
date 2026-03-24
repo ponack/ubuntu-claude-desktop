@@ -26,6 +26,7 @@
   let activeModel = $state("");
   let activeProvider = $state("");
   let tokenUsage = $state(null);
+  let promptVariableDialog = $state(null); // { content, variables: [{name, value}] }
 
   async function loadMessages() {
     if (!conversationId) {
@@ -111,8 +112,33 @@
   }
 
   function insertPrompt(prompt) {
-    inputText = prompt.content;
     showPromptPicker = false;
+    const varPattern = /\{\{(\w+(?:\s+\w+)*)\}\}/g;
+    const matches = [...prompt.content.matchAll(varPattern)];
+    const uniqueVars = [...new Set(matches.map(m => m[1]))];
+
+    if (uniqueVars.length > 0) {
+      promptVariableDialog = {
+        content: prompt.content,
+        variables: uniqueVars.map(name => ({ name, value: "" })),
+      };
+    } else {
+      inputText = prompt.content;
+    }
+  }
+
+  function applyPromptVariables() {
+    if (!promptVariableDialog) return;
+    let result = promptVariableDialog.content;
+    for (const v of promptVariableDialog.variables) {
+      result = result.replaceAll(`{{${v.name}}}`, v.value);
+    }
+    inputText = result;
+    promptVariableDialog = null;
+  }
+
+  function cancelPromptVariables() {
+    promptVariableDialog = null;
   }
 
   let filteredCommands = $derived(
@@ -630,6 +656,31 @@
   {/if}
 </div>
 
+{#if promptVariableDialog}
+  <div class="variable-overlay" onclick={cancelPromptVariables} role="dialog" aria-label="Fill in prompt variables">
+    <div class="variable-dialog" onclick={(e) => e.stopPropagation()}>
+      <h3>Fill in Variables</h3>
+      <div class="variable-list">
+        {#each promptVariableDialog.variables as variable, i}
+          <label class="variable-field">
+            <span class="variable-name">{variable.name}</span>
+            <input
+              type="text"
+              bind:value={promptVariableDialog.variables[i].value}
+              placeholder="Enter value for {variable.name}"
+              onkeydown={(e) => e.key === "Enter" && applyPromptVariables()}
+            />
+          </label>
+        {/each}
+      </div>
+      <div class="variable-actions">
+        <button class="var-btn primary" onclick={applyPromptVariables}>Apply</button>
+        <button class="var-btn" onclick={cancelPromptVariables}>Cancel</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .chat-container {
     display: flex;
@@ -902,4 +953,81 @@
     font-size: 11px;
     color: var(--text-muted);
   }
+
+  .variable-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+  }
+
+  .variable-dialog {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    width: 400px;
+    max-width: 90vw;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+
+  .variable-dialog h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  .variable-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .variable-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .variable-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+  }
+
+  .variable-field input {
+    padding: 8px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+  }
+
+  .variable-field input:focus {
+    border-color: var(--accent);
+  }
+
+  .variable-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .var-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+
+  .var-btn:hover { background: var(--bg-tertiary); }
+  .var-btn.primary { background: var(--accent); color: white; border: none; }
+  .var-btn.primary:hover { background: var(--accent-hover); }
 </style>
