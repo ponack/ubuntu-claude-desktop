@@ -111,6 +111,21 @@ impl Database {
             );"
         ).ok();
 
+        // Migration: add workspace profile columns to projects
+        let has_provider: bool = conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'")
+            .and_then(|mut s| s.query_row([], |row| row.get::<_, String>(0)))
+            .map(|sql| sql.contains("provider"))
+            .unwrap_or(false);
+        if !has_provider {
+            conn.execute_batch(
+                "ALTER TABLE projects ADD COLUMN provider TEXT;
+                 ALTER TABLE projects ADD COLUMN api_key TEXT;
+                 ALTER TABLE projects ADD COLUMN model TEXT;
+                 ALTER TABLE projects ADD COLUMN system_prompt TEXT;"
+            ).ok();
+        }
+
         Ok(Self { conn })
     }
 
@@ -228,7 +243,7 @@ impl Database {
 
     pub fn list_projects(&self) -> Result<Vec<Project>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, context, created_at FROM projects ORDER BY name ASC"
+            "SELECT id, name, context, created_at, provider, api_key, model, system_prompt FROM projects ORDER BY name ASC"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Project {
@@ -236,24 +251,28 @@ impl Database {
                 name: row.get(1)?,
                 context: row.get(2)?,
                 created_at: row.get(3)?,
+                provider: row.get(4)?,
+                api_key: row.get(5)?,
+                model: row.get(6)?,
+                system_prompt: row.get(7)?,
             })
         })?;
         rows.collect()
     }
 
-    pub fn insert_project(&self, id: &str, name: &str, context: &str) -> Result<(), rusqlite::Error> {
+    pub fn insert_project(&self, id: &str, name: &str, context: &str, provider: Option<&str>, api_key: Option<&str>, model: Option<&str>, system_prompt: Option<&str>) -> Result<(), rusqlite::Error> {
         let now = chrono::Utc::now().to_rfc3339();
         self.conn.execute(
-            "INSERT INTO projects (id, name, context, created_at) VALUES (?1, ?2, ?3, ?4)",
-            params![id, name, context, &now],
+            "INSERT INTO projects (id, name, context, created_at, provider, api_key, model, system_prompt) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, name, context, &now, provider, api_key, model, system_prompt],
         )?;
         Ok(())
     }
 
-    pub fn update_project(&self, id: &str, name: &str, context: &str) -> Result<(), rusqlite::Error> {
+    pub fn update_project(&self, id: &str, name: &str, context: &str, provider: Option<&str>, api_key: Option<&str>, model: Option<&str>, system_prompt: Option<&str>) -> Result<(), rusqlite::Error> {
         self.conn.execute(
-            "UPDATE projects SET name = ?1, context = ?2 WHERE id = ?3",
-            params![name, context, id],
+            "UPDATE projects SET name = ?1, context = ?2, provider = ?3, api_key = ?4, model = ?5, system_prompt = ?6 WHERE id = ?7",
+            params![name, context, provider, api_key, model, system_prompt, id],
         )?;
         Ok(())
     }
@@ -269,6 +288,28 @@ impl Database {
         let mut rows = stmt.query_map(params![project_id], |row| row.get::<_, String>(0))?;
         match rows.next() {
             Some(Ok(val)) if !val.is_empty() => Ok(Some(val)),
+            _ => Ok(None),
+        }
+    }
+
+    pub fn get_project(&self, project_id: &str) -> Result<Option<Project>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, context, created_at, provider, api_key, model, system_prompt FROM projects WHERE id = ?1"
+        )?;
+        let mut rows = stmt.query_map(params![project_id], |row| {
+            Ok(Project {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                context: row.get(2)?,
+                created_at: row.get(3)?,
+                provider: row.get(4)?,
+                api_key: row.get(5)?,
+                model: row.get(6)?,
+                system_prompt: row.get(7)?,
+            })
+        })?;
+        match rows.next() {
+            Some(Ok(p)) => Ok(Some(p)),
             _ => Ok(None),
         }
     }
@@ -428,6 +469,10 @@ pub struct Project {
     pub name: String,
     pub context: String,
     pub created_at: String,
+    pub provider: Option<String>,
+    pub api_key: Option<String>,
+    pub model: Option<String>,
+    pub system_prompt: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -569,15 +614,15 @@ pub fn get_projects(state: tauri::State<AppState>) -> Result<Vec<Project>, Strin
 }
 
 #[tauri::command]
-pub fn create_project(state: tauri::State<AppState>, name: String, context: String) -> Result<String, String> {
+pub fn create_project(state: tauri::State<AppState>, name: String, context: String, provider: Option<String>, api_key: Option<String>, model: Option<String>, system_prompt: Option<String>) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
-    state.db.lock().unwrap().insert_project(&id, &name, &context).map_err(|e| e.to_string())?;
+    state.db.lock().unwrap().insert_project(&id, &name, &context, provider.as_deref(), api_key.as_deref(), model.as_deref(), system_prompt.as_deref()).map_err(|e| e.to_string())?;
     Ok(id)
 }
 
 #[tauri::command]
-pub fn update_project(state: tauri::State<AppState>, id: String, name: String, context: String) -> Result<(), String> {
-    state.db.lock().unwrap().update_project(&id, &name, &context).map_err(|e| e.to_string())
+pub fn update_project(state: tauri::State<AppState>, id: String, name: String, context: String, provider: Option<String>, api_key: Option<String>, model: Option<String>, system_prompt: Option<String>) -> Result<(), String> {
+    state.db.lock().unwrap().update_project(&id, &name, &context, provider.as_deref(), api_key.as_deref(), model.as_deref(), system_prompt.as_deref()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

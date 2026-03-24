@@ -174,18 +174,40 @@
     catch (e) { console.error("Failed to load projects:", e); }
   }
 
+  let newProjectProvider = $state("");
+  let newProjectApiKey = $state("");
+  let newProjectModel = $state("");
+  let newProjectSystemPrompt = $state("");
+
   async function addProject() {
     if (!newProjectName.trim()) return;
     try {
-      await invoke("create_project", { name: newProjectName.trim(), context: newProjectContext.trim() });
+      await invoke("create_project", {
+        name: newProjectName.trim(),
+        context: newProjectContext.trim(),
+        provider: newProjectProvider || null,
+        apiKey: newProjectApiKey || null,
+        model: newProjectModel || null,
+        systemPrompt: newProjectSystemPrompt || null,
+      });
       newProjectName = ""; newProjectContext = "";
+      newProjectProvider = ""; newProjectApiKey = "";
+      newProjectModel = ""; newProjectSystemPrompt = "";
       await loadProjects();
     } catch (e) { error = String(e); }
   }
 
   async function saveProject(project) {
     try {
-      await invoke("update_project", { id: project.id, name: project.name, context: project.context });
+      await invoke("update_project", {
+        id: project.id,
+        name: project.name,
+        context: project.context,
+        provider: project.provider || null,
+        apiKey: project.api_key || null,
+        model: project.model || null,
+        systemPrompt: project.system_prompt || null,
+      });
       editingProject = null;
       await loadProjects();
     } catch (e) { error = String(e); }
@@ -528,13 +550,24 @@
 
     <div class="setting-group">
       <label>Projects</label>
-      <p class="hint">Projects inject persistent context into conversations assigned to them.</p>
+      <p class="hint">Projects inject context and can override provider, model, API key, and system prompt per-workspace.</p>
 
       {#each projects as project (project.id)}
         <div class="project-item">
           {#if editingProject === project.id}
             <input type="text" bind:value={project.name} placeholder="Project name" />
             <textarea bind:value={project.context} placeholder="Project context/instructions..." rows="3"></textarea>
+            <div class="workspace-fields">
+              <select bind:value={project.provider}>
+                <option value="">Default provider</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="openai">OpenAI</option>
+                <option value="ollama">Ollama</option>
+              </select>
+              <input type="password" bind:value={project.api_key} placeholder="API key override (optional)" />
+              <input type="text" bind:value={project.model} placeholder="Model override (optional)" />
+              <textarea bind:value={project.system_prompt} placeholder="System prompt override (optional)" rows="2"></textarea>
+            </div>
             <div class="project-actions">
               <button class="small-btn accent" onclick={() => saveProject(project)}>Save</button>
               <button class="small-btn" onclick={() => (editingProject = null)}>Cancel</button>
@@ -550,6 +583,9 @@
             {#if project.context}
               <p class="project-context-preview">{project.context.length > 100 ? project.context.slice(0, 100) + '...' : project.context}</p>
             {/if}
+            {#if project.provider || project.model}
+              <p class="project-overrides">{[project.provider, project.model].filter(Boolean).join(" / ")}</p>
+            {/if}
           {/if}
         </div>
       {/each}
@@ -557,6 +593,20 @@
       <div class="new-project">
         <input type="text" bind:value={newProjectName} placeholder="New project name" />
         <textarea bind:value={newProjectContext} placeholder="Project context/instructions (optional)" rows="2"></textarea>
+        <details class="workspace-details">
+          <summary>Workspace overrides (optional)</summary>
+          <div class="workspace-fields">
+            <select bind:value={newProjectProvider}>
+              <option value="">Default provider</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="openai">OpenAI</option>
+              <option value="ollama">Ollama</option>
+            </select>
+            <input type="password" bind:value={newProjectApiKey} placeholder="API key override" />
+            <input type="text" bind:value={newProjectModel} placeholder="Model override" />
+            <textarea bind:value={newProjectSystemPrompt} placeholder="System prompt override" rows="2"></textarea>
+          </div>
+        </details>
         <button class="small-btn accent" onclick={addProject} disabled={!newProjectName.trim()}>
           Add Project
         </button>
@@ -814,6 +864,46 @@
   .small-btn.accent:disabled { opacity: 0.4; cursor: not-allowed; }
   .small-btn.danger { color: var(--danger); border-color: var(--danger); }
   .small-btn.danger:hover { background: rgba(233, 69, 96, 0.1); }
+
+  .workspace-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .workspace-fields select,
+  .workspace-fields input,
+  .workspace-fields textarea {
+    padding: 6px 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    outline: none;
+  }
+
+  .workspace-fields select:focus,
+  .workspace-fields input:focus,
+  .workspace-fields textarea:focus {
+    border-color: var(--accent);
+  }
+
+  .workspace-details {
+    margin-top: 4px;
+  }
+
+  .workspace-details summary {
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .project-overrides {
+    font-size: 11px;
+    color: var(--accent);
+    margin-top: 2px;
+  }
 
   .usage-grid {
     display: grid;

@@ -97,18 +97,29 @@ fn build_content_blocks(text: &str, attachments: &[Attachment]) -> serde_json::V
     serde_json::json!(blocks)
 }
 
-/// Resolve the active provider config from settings
-fn resolve_provider(state: &AppState) -> Result<ResolvedProvider, String> {
+/// Resolve the active provider config from settings, with optional project overrides
+fn resolve_provider(state: &AppState, project_id: Option<&str>) -> Result<ResolvedProvider, String> {
     let db = state.db.lock().unwrap();
-    let provider_str = db.get_setting("provider").map_err(|e| e.to_string())?
+
+    // Check for project-level overrides
+    let project = project_id
+        .and_then(|pid| db.get_project(pid).ok().flatten());
+
+    let provider_str = project.as_ref()
+        .and_then(|p| p.provider.clone())
+        .or_else(|| db.get_setting("provider").ok().flatten())
         .unwrap_or_else(|| "anthropic".to_string());
     let provider_type = ProviderType::from_str(&provider_str);
 
     match provider_type {
         ProviderType::Anthropic => {
-            let api_key = db.get_setting("api_key").map_err(|e| e.to_string())?
+            let api_key = project.as_ref()
+                .and_then(|p| p.api_key.clone())
+                .or_else(|| db.get_setting("api_key").ok().flatten())
                 .ok_or_else(|| "API key not set. Please add your Anthropic key in Settings.".to_string())?;
-            let model = db.get_setting("model").map_err(|e| e.to_string())?
+            let model = project.as_ref()
+                .and_then(|p| p.model.clone())
+                .or_else(|| db.get_setting("model").ok().flatten())
                 .unwrap_or_else(|| "claude-sonnet-4-6".to_string());
             Ok(ResolvedProvider {
                 provider_type: ProviderType::Anthropic,
@@ -118,11 +129,15 @@ fn resolve_provider(state: &AppState) -> Result<ResolvedProvider, String> {
             })
         }
         ProviderType::OpenAI => {
-            let api_key = db.get_setting("openai_api_key").map_err(|e| e.to_string())?
+            let api_key = project.as_ref()
+                .and_then(|p| p.api_key.clone())
+                .or_else(|| db.get_setting("openai_api_key").ok().flatten())
                 .ok_or_else(|| "OpenAI API key not set. Please add your key in Settings.".to_string())?;
             let base_url = db.get_setting("openai_base_url").map_err(|e| e.to_string())?
                 .unwrap_or_else(|| "https://api.openai.com".to_string());
-            let model = db.get_setting("model").map_err(|e| e.to_string())?
+            let model = project.as_ref()
+                .and_then(|p| p.model.clone())
+                .or_else(|| db.get_setting("model").ok().flatten())
                 .unwrap_or_else(|| "gpt-4o".to_string());
             Ok(ResolvedProvider {
                 provider_type: ProviderType::OpenAI,
@@ -134,7 +149,9 @@ fn resolve_provider(state: &AppState) -> Result<ResolvedProvider, String> {
         ProviderType::Ollama => {
             let base_url = db.get_setting("ollama_base_url").map_err(|e| e.to_string())?
                 .unwrap_or_else(|| "http://localhost:11434".to_string());
-            let model = db.get_setting("model").map_err(|e| e.to_string())?
+            let model = project.as_ref()
+                .and_then(|p| p.model.clone())
+                .or_else(|| db.get_setting("model").ok().flatten())
                 .unwrap_or_else(|| "llama3.2".to_string());
             Ok(ResolvedProvider {
                 provider_type: ProviderType::Ollama,
@@ -161,17 +178,33 @@ pub async fn send_message(
 ) -> Result<String, String> {
     STOP_FLAG.store(false, Ordering::SeqCst);
 
-    let provider = resolve_provider(&state)?;
+    // Get project ID for this conversation
+    let project_id = {
+        let db = state.db.lock().unwrap();
+        db.get_conversation_project_id(&conversation_id).ok().flatten()
+    };
+
+    let provider = resolve_provider(&state, project_id.as_deref())?;
 
     let system_prompt = {
         let db = state.db.lock().unwrap();
         let base_prompt = db.get_setting("system_prompt").map_err(|e| e.to_string())?;
-        let project_context = db.get_conversation_project_id(&conversation_id)
-            .ok()
-            .flatten()
-            .and_then(|pid| db.get_project_context(&pid).ok().flatten());
 
-        match (base_prompt, project_context) {
+        // Project-level system prompt override or context
+        let (project_sys_prompt, project_context) = match &project_id {
+            Some(pid) => {
+                let proj = db.get_project(pid).ok().flatten();
+                let sys = proj.as_ref().and_then(|p| p.system_prompt.clone()).filter(|s| !s.is_empty());
+                let ctx = db.get_project_context(pid).ok().flatten();
+                (sys, ctx)
+            }
+            None => (None, None),
+        };
+
+        // If project has its own system prompt, use it instead of the global one
+        let effective_prompt = project_sys_prompt.or(base_prompt);
+
+        match (effective_prompt, project_context) {
             (Some(bp), Some(pc)) => Some(format!("{}\n\n---\nProject Context:\n{}", bp, pc)),
             (Some(bp), None) => Some(bp),
             (None, Some(pc)) => Some(format!("Project Context:\n{}", pc)),
@@ -754,7 +787,11 @@ pub async fn generate_title(
     conversation_id: String,
     user_message: String,
 ) -> Result<String, String> {
-    let provider = resolve_provider(&state)?;
+    let project_id = {
+        let db = state.db.lock().unwrap();
+        db.get_conversation_project_id(&conversation_id).ok().flatten()
+    };
+    let provider = resolve_provider(&state, project_id.as_deref())?;
 
     let prompt = format!(
         "Generate a short title (max 6 words, no quotes) for a conversation that starts with: {}",
