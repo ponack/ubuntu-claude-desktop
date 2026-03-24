@@ -27,6 +27,9 @@
   let activeProvider = $state("");
   let tokenUsage = $state(null);
   let promptVariableDialog = $state(null); // { content, variables: [{name, value}] }
+  let agentMode = $state(false);
+  let agentSteps = $state([]); // [{step, description, status}]
+  let agentRunning = $state(false);
 
   async function loadMessages() {
     if (!conversationId) {
@@ -198,7 +201,35 @@
       } else if (eventType === "done") {
         isStreaming = false;
         streamingMessageId = null;
-        notifyIfBackground("Response complete", "Claude has finished responding.");
+
+        // Agent mode: auto-continue if response contains [CONTINUE]
+        if (agentMode && agentRunning) {
+          const lastMsg = messages.find(m => m.id === message_id);
+          const content = lastMsg?.content || "";
+          if (content.includes("[CONTINUE]") && !content.includes("[DONE]")) {
+            // Parse step info
+            const stepMatch = content.match(/\[STEP (\d+)\/(\d+)\]/);
+            if (stepMatch) {
+              const current = parseInt(stepMatch[1]);
+              const total = parseInt(stepMatch[2]);
+              agentSteps = Array.from({length: total}, (_, i) => ({
+                step: i + 1,
+                status: i < current ? "done" : i === current ? "active" : "pending",
+              }));
+            }
+            // Auto-send continuation
+            setTimeout(() => {
+              inputText = "Continue with the next step.";
+              sendMessage();
+            }, 500);
+          } else {
+            agentRunning = false;
+            agentSteps = [];
+            notifyIfBackground("Agent complete", "All steps have been completed.");
+          }
+        } else {
+          notifyIfBackground("Response complete", "Claude has finished responding.");
+        }
       } else if (eventType === "error") {
         isStreaming = false;
         streamingMessageId = null;
@@ -345,9 +376,22 @@
     }
   }
 
+  const AGENT_PREFIX = `You are in agent mode. Break down the user's request into clear steps. For each response:
+1. State which step you're on: [STEP X/Y]
+2. Execute that step fully
+3. End with [CONTINUE] if more steps remain, or [DONE] if all steps are complete
+Be thorough in each step. Do not skip steps or combine them.`;
+
   async function sendMessage() {
-    const text = inputText.trim();
+    let text = inputText.trim();
     if ((!text && attachments.length === 0) || isStreaming) return;
+
+    // If agent mode is on and this is the first message (triggering agent), prepend instruction
+    if (agentMode && !agentRunning && text !== "Continue with the next step.") {
+      text = `${AGENT_PREFIX}\n\nUser request: ${text}`;
+      agentRunning = true;
+      agentSteps = [{ step: 1, status: "active" }];
+    }
 
     inputText = "";
     const currentAttachments = [...attachments];
@@ -587,6 +631,17 @@
       {/each}
     </div>
 
+    {#if agentRunning && agentSteps.length > 1}
+      <div class="agent-progress">
+        <span class="agent-label">Agent</span>
+        {#each agentSteps as step}
+          <div class="agent-step" class:done={step.status === "done"} class:active={step.status === "active"}>
+            {step.step}
+          </div>
+        {/each}
+      </div>
+    {/if}
+
     <div class="input-area" class:dragging={isDragging}
       ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop}>
     {#if attachments.length > 0}
@@ -634,6 +689,11 @@
       <button class="attach-btn" onclick={captureScreenshot} disabled={isStreaming} title="Capture screenshot region" aria-label="Capture screenshot">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+        </svg>
+      </button>
+      <button class="attach-btn" class:agent-active={agentMode} onclick={() => (agentMode = !agentMode)} disabled={isStreaming && agentRunning} title={agentMode ? "Agent mode ON — multi-step execution" : "Enable agent mode"} aria-label="Toggle agent mode">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4m-8.66-2.34l2.83-2.83m11.66-11.66l2.83-2.83M1 12h4m14 0h4m-2.34 8.66l-2.83-2.83M4.17 4.17L7 7"/>
         </svg>
       </button>
       <button class="attach-btn" onclick={() => (showPromptPicker = !showPromptPicker)} disabled={isStreaming} title="Insert a saved prompt from your library" aria-label="Prompt library">
@@ -1046,4 +1106,52 @@
   .var-btn:hover { background: var(--bg-tertiary); }
   .var-btn.primary { background: var(--accent); color: white; border: none; }
   .var-btn.primary:hover { background: var(--accent-hover); }
+
+  .agent-active {
+    color: var(--accent) !important;
+    background: rgba(78, 204, 163, 0.15);
+  }
+
+  .agent-progress {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 20px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+  }
+
+  .agent-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 4px;
+  }
+
+  .agent-step {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    transition: all 0.2s;
+  }
+
+  .agent-step.done {
+    background: var(--accent);
+    color: white;
+  }
+
+  .agent-step.active {
+    background: rgba(78, 204, 163, 0.3);
+    color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent);
+  }
 </style>
