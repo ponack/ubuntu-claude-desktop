@@ -1,6 +1,7 @@
 <script>
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open } from "@tauri-apps/plugin-dialog";
   import { sendNotification, isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
   import { onMount, tick } from "svelte";
@@ -116,6 +117,20 @@
     loadActiveModel();
     if (chatInput) chatInput.focus();
 
+    // Tauri native drag-and-drop (HTML5 drag-drop doesn't work for desktop files in Tauri)
+    const unlistenDragDrop = getCurrentWindow().onDragDropEvent((event) => {
+      if (event.payload.type === "over") {
+        isDragging = true;
+      } else if (event.payload.type === "drop") {
+        isDragging = false;
+        if (event.payload.paths && event.payload.paths.length > 0) {
+          processDroppedPaths(event.payload.paths);
+        }
+      } else if (event.payload.type === "leave") {
+        isDragging = false;
+      }
+    });
+
     // Offline mode listeners
     const handleOnline = () => {
       isOffline = false;
@@ -126,6 +141,7 @@
     window.addEventListener("offline", handleOffline);
 
     return () => {
+      unlistenDragDrop.then((fn) => fn());
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
@@ -390,43 +406,20 @@
 
   let isDragging = $state(false);
 
-  function handleDragOver(e) {
-    e.preventDefault();
-    isDragging = true;
-  }
-
-  function handleDragLeave(e) {
-    e.preventDefault();
-    isDragging = false;
-  }
-
-  function handleDrop(e) {
-    e.preventDefault();
-    isDragging = false;
-    const files = e.dataTransfer?.files;
-    if (!files) return;
-    processDroppedFiles(files);
-  }
-
-  function processDroppedFiles(fileList) {
+  function processDroppedPaths(paths) {
     const imageExts = ["png", "jpg", "jpeg", "gif", "webp"];
     const mediaTypes = {
       png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
       gif: "image/gif", webp: "image/webp",
     };
-    for (const file of fileList) {
-      const ext = file.name.split(".").pop().toLowerCase();
+    for (const filePath of paths) {
+      const ext = filePath.split(".").pop().toLowerCase();
       if (!imageExts.includes(ext)) continue;
-      const reader = new FileReader();
-      reader.onload = () => {
-        attachments = [...attachments, {
-          path: null,
-          data: reader.result.split(",")[1],
-          media_type: mediaTypes[ext] || "image/png",
-          name: file.name,
-        }];
-      };
-      reader.readAsDataURL(file);
+      attachments = [...attachments, {
+        path: filePath,
+        media_type: mediaTypes[ext] || "image/png",
+        name: filePath.split("/").pop(),
+      }];
     }
   }
 
@@ -750,8 +743,7 @@ Be thorough in each step. Do not skip steps or combine them.`;
       </div>
     {/if}
 
-    <div class="input-area" class:dragging={isDragging}
-      ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop}>
+    <div class="input-area" class:dragging={isDragging}>
     {#if attachments.length > 0}
       <div class="attachments-preview">
         {#each attachments as att, i}
