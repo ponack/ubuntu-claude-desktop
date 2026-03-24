@@ -48,6 +48,9 @@
   // Update settings
   let updateInterval = $state("86400000");
 
+  // Token Usage Analytics
+  let totalUsage = $state(null);
+
   // About
   let appVersion = $state("");
   let appArch = $state("");
@@ -97,6 +100,10 @@
         appVersion = info.version;
         appArch = info.arch;
         appOs = info.os;
+      } catch (_) {}
+
+      try {
+        totalUsage = await invoke("get_total_usage");
       } catch (_) {}
 
       if (provider === "ollama") {
@@ -615,6 +622,30 @@
       {saved ? "Saved!" : "Save Settings"}
     </button>
 
+    {#if totalUsage}
+    <div class="about-section">
+      <h3>Token Usage</h3>
+      <div class="usage-grid">
+        <div class="usage-stat">
+          <span class="usage-value">{totalUsage.input_tokens.toLocaleString()}</span>
+          <span class="usage-label">Input Tokens</span>
+        </div>
+        <div class="usage-stat">
+          <span class="usage-value">{totalUsage.output_tokens.toLocaleString()}</span>
+          <span class="usage-label">Output Tokens</span>
+        </div>
+        <div class="usage-stat">
+          <span class="usage-value">{totalUsage.total_tokens.toLocaleString()}</span>
+          <span class="usage-label">Total Tokens</span>
+        </div>
+        <div class="usage-stat">
+          <span class="usage-value">{totalUsage.message_count.toLocaleString()}</span>
+          <span class="usage-label">Messages</span>
+        </div>
+      </div>
+    </div>
+    {/if}
+
     <div class="about-section">
       <h3>About</h3>
       <div class="about-info">
@@ -783,6 +814,35 @@
   .small-btn.accent:disabled { opacity: 0.4; cursor: not-allowed; }
   .small-btn.danger { color: var(--danger); border-color: var(--danger); }
   .small-btn.danger:hover { background: rgba(233, 69, 96, 0.1); }
+
+  .usage-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .usage-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+  }
+
+  .usage-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+  }
+
+  .usage-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
 
   .about-section {
     margin-top: 32px;

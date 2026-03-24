@@ -40,6 +40,14 @@ struct StreamEvent {
     message_id: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+struct UsageEvent {
+    message_id: String,
+    input_tokens: i64,
+    output_tokens: i64,
+    model: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Attachment {
     path: Option<String>,
@@ -247,14 +255,14 @@ pub async fn send_message(
 
     let msg_id = assistant_msg_id.clone();
     tauri::async_runtime::spawn(async move {
-        let (provider, messages, _conversation_id, system_prompt, mcp_configs) = state_inner.as_ref();
+        let (provider, messages, conversation_id, system_prompt, mcp_configs) = state_inner.as_ref();
 
         match &provider.provider_type {
             ProviderType::Anthropic => {
-                stream_anthropic(&app_clone, &msg_id, provider, messages, system_prompt, mcp_configs).await;
+                stream_anthropic(&app_clone, &msg_id, conversation_id, provider, messages, system_prompt, mcp_configs).await;
             }
             ProviderType::OpenAI | ProviderType::Ollama => {
-                stream_openai_compatible(&app_clone, &msg_id, provider, messages, system_prompt).await;
+                stream_openai_compatible(&app_clone, &msg_id, conversation_id, provider, messages, system_prompt).await;
             }
         }
     });
@@ -265,6 +273,7 @@ pub async fn send_message(
 async fn stream_anthropic(
     app: &tauri::AppHandle,
     msg_id: &str,
+    conversation_id: &str,
     provider: &ResolvedProvider,
     messages: &[ApiMessage],
     system_prompt: &Option<String>,
@@ -280,6 +289,8 @@ async fn stream_anthropic(
     let client = reqwest::Client::new();
     let mut current_messages = messages.to_vec();
     let mut full_content = String::new();
+    let mut total_input_tokens: i64 = 0;
+    let mut total_output_tokens: i64 = 0;
 
     loop {
         let mut body = serde_json::json!({
@@ -361,6 +372,13 @@ async fn stream_anthropic(
                                         let event_type = parsed.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
                                         match event_type {
+                                            "message_start" => {
+                                                if let Some(usage) = parsed.get("message").and_then(|m| m.get("usage")) {
+                                                    if let Some(it) = usage.get("input_tokens").and_then(|v| v.as_i64()) {
+                                                        total_input_tokens += it;
+                                                    }
+                                                }
+                                            }
                                             "content_block_start" => {
                                                 if let Some(cb) = parsed.get("content_block") {
                                                     if cb.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
@@ -412,6 +430,11 @@ async fn stream_anthropic(
                                                 if let Some(d) = parsed.get("delta") {
                                                     if let Some(sr) = d.get("stop_reason").and_then(|v| v.as_str()) {
                                                         stop_reason = sr.to_string();
+                                                    }
+                                                }
+                                                if let Some(usage) = parsed.get("usage") {
+                                                    if let Some(ot) = usage.get("output_tokens").and_then(|v| v.as_i64()) {
+                                                        total_output_tokens = ot;
                                                     }
                                                 }
                                             }
@@ -510,6 +533,19 @@ async fn stream_anthropic(
                     continue;
                 }
 
+                // Save token usage
+                if total_input_tokens > 0 || total_output_tokens > 0 {
+                    let db_state = app.state::<AppState>();
+                    let db = db_state.db.lock().unwrap();
+                    let _ = db.insert_token_usage(conversation_id, msg_id, total_input_tokens, total_output_tokens, &provider.model);
+                    let _ = app.emit("token-usage", UsageEvent {
+                        message_id: msg_id.to_string(),
+                        input_tokens: total_input_tokens,
+                        output_tokens: total_output_tokens,
+                        model: provider.model.clone(),
+                    });
+                }
+
                 let _ = app.emit("stream-event", StreamEvent {
                     event: "done".into(),
                     content: String::new(),
@@ -543,6 +579,7 @@ async fn stream_anthropic(
 async fn stream_openai_compatible(
     app: &tauri::AppHandle,
     msg_id: &str,
+    conversation_id: &str,
     provider: &ResolvedProvider,
     messages: &[ApiMessage],
     system_prompt: &Option<String>,
@@ -569,6 +606,7 @@ async fn stream_openai_compatible(
     let body = serde_json::json!({
         "model": provider.model,
         "stream": true,
+        "stream_options": {"include_usage": true},
         "messages": oai_messages,
     });
 
@@ -600,6 +638,8 @@ async fn stream_openai_compatible(
             let mut stream = resp.bytes_stream();
             let mut buffer = String::new();
             let mut full_content = String::new();
+            let mut total_input_tokens: i64 = 0;
+            let mut total_output_tokens: i64 = 0;
 
             while let Some(chunk) = stream.next().await {
                 if STOP_FLAG.load(Ordering::SeqCst) {
@@ -643,6 +683,15 @@ async fn stream_openai_compatible(
                                             }
                                         }
                                     }
+                                    // Capture usage from final chunk
+                                    if let Some(usage) = parsed.get("usage") {
+                                        if let Some(pt) = usage.get("prompt_tokens").and_then(|v| v.as_i64()) {
+                                            total_input_tokens = pt;
+                                        }
+                                        if let Some(ct) = usage.get("completion_tokens").and_then(|v| v.as_i64()) {
+                                            total_output_tokens = ct;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -662,6 +711,19 @@ async fn stream_openai_compatible(
                         return;
                     }
                 }
+            }
+
+            // Save token usage
+            if total_input_tokens > 0 || total_output_tokens > 0 {
+                let db_state = app.state::<AppState>();
+                let db = db_state.db.lock().unwrap();
+                let _ = db.insert_token_usage(conversation_id, msg_id, total_input_tokens, total_output_tokens, &provider.model);
+                let _ = app.emit("token-usage", UsageEvent {
+                    message_id: msg_id.to_string(),
+                    input_tokens: total_input_tokens,
+                    output_tokens: total_output_tokens,
+                    model: provider.model.clone(),
+                });
             }
 
             let _ = app.emit("stream-event", StreamEvent {

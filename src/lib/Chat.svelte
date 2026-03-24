@@ -25,21 +25,31 @@
   let showCommandPicker = $state(false);
   let activeModel = $state("");
   let activeProvider = $state("");
+  let tokenUsage = $state(null);
 
   async function loadMessages() {
     if (!conversationId) {
       messages = [];
       activeArtifact = null;
       currentProjectId = null;
+      tokenUsage = null;
       return;
     }
     try {
       messages = await invoke("get_messages", { conversationId });
       const projId = await invoke("get_conversation_project", { conversationId });
       currentProjectId = projId || null;
+      loadTokenUsage();
     } catch (e) {
       console.error("Failed to load messages:", e);
     }
+  }
+
+  async function loadTokenUsage() {
+    if (!conversationId) { tokenUsage = null; return; }
+    try {
+      tokenUsage = await invoke("get_conversation_usage", { conversationId });
+    } catch (e) { tokenUsage = null; }
   }
 
   async function loadProjects() {
@@ -145,6 +155,10 @@
   }
 
   onMount(() => {
+    const unlistenUsage = listen("token-usage", () => {
+      loadTokenUsage();
+    });
+
     const unlisten = listen("stream-event", (event) => {
       const { event: eventType, content, message_id } = event.payload;
 
@@ -178,6 +192,7 @@
 
     return () => {
       unlisten.then((fn) => fn());
+      unlistenUsage.then((fn) => fn());
     };
   });
 
@@ -486,6 +501,11 @@
             {/each}
           </select>
         {/if}
+        {#if tokenUsage && tokenUsage.total_tokens > 0}
+          <span class="token-usage" title="Input: {tokenUsage.input_tokens.toLocaleString()} | Output: {tokenUsage.output_tokens.toLocaleString()}">
+            {tokenUsage.total_tokens.toLocaleString()} tokens
+          </span>
+        {/if}
         <div class="toolbar-actions">
           <button class="toolbar-btn" onclick={() => exportConversation("markdown")} title="Export as Markdown" aria-label="Export as Markdown">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -645,6 +665,16 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 200px;
+  }
+
+  .token-usage {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    cursor: default;
   }
 
   .toolbar-actions {

@@ -64,6 +64,16 @@ impl Database {
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS token_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                model TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+            );
             PRAGMA foreign_keys = ON;"
         )?;
 
@@ -76,6 +86,20 @@ impl Database {
         if !has_project_id {
             conn.execute_batch("ALTER TABLE conversations ADD COLUMN project_id TEXT;").ok();
         }
+
+        // Migration: create token_usage table if missing
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS token_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                model TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+            );"
+        ).ok();
 
         // Migration: create projects table if missing
         conn.execute_batch(
@@ -266,6 +290,50 @@ impl Database {
         }
     }
 
+    pub fn insert_token_usage(
+        &self,
+        conversation_id: &str,
+        message_id: &str,
+        input_tokens: i64,
+        output_tokens: i64,
+        model: &str,
+    ) -> Result<(), rusqlite::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO token_usage (conversation_id, message_id, input_tokens, output_tokens, model, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![conversation_id, message_id, input_tokens, output_tokens, model, &now],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_conversation_token_usage(&self, conversation_id: &str) -> Result<TokenUsageSummary, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COUNT(*) FROM token_usage WHERE conversation_id = ?1"
+        )?;
+        stmt.query_row(params![conversation_id], |row| {
+            Ok(TokenUsageSummary {
+                input_tokens: row.get(0)?,
+                output_tokens: row.get(1)?,
+                total_tokens: row.get::<_, i64>(0)? + row.get::<_, i64>(1)?,
+                message_count: row.get(2)?,
+            })
+        })
+    }
+
+    pub fn get_total_token_usage(&self) -> Result<TokenUsageSummary, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COUNT(*) FROM token_usage"
+        )?;
+        stmt.query_row([], |row| {
+            Ok(TokenUsageSummary {
+                input_tokens: row.get(0)?,
+                output_tokens: row.get(1)?,
+                total_tokens: row.get::<_, i64>(0)? + row.get::<_, i64>(1)?,
+                message_count: row.get(2)?,
+            })
+        })
+    }
+
     pub fn list_prompts(&self) -> Result<Vec<Prompt>, rusqlite::Error> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, content, created_at FROM prompts ORDER BY name ASC"
@@ -318,6 +386,14 @@ pub struct Prompt {
     pub name: String,
     pub content: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TokenUsageSummary {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    pub message_count: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -608,6 +684,18 @@ pub fn update_prompt(state: tauri::State<AppState>, id: String, name: String, co
 #[tauri::command]
 pub fn delete_prompt(state: tauri::State<AppState>, id: String) -> Result<(), String> {
     state.db.lock().unwrap().delete_prompt_by_id(&id).map_err(|e| e.to_string())
+}
+
+// --- Token Usage ---
+
+#[tauri::command]
+pub fn get_conversation_usage(state: tauri::State<AppState>, conversation_id: String) -> Result<TokenUsageSummary, String> {
+    state.db.lock().unwrap().get_conversation_token_usage(&conversation_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_total_usage(state: tauri::State<AppState>) -> Result<TokenUsageSummary, String> {
+    state.db.lock().unwrap().get_total_token_usage().map_err(|e| e.to_string())
 }
 
 // --- Custom Commands (Plugin System) ---
