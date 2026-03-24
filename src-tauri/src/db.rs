@@ -64,6 +64,15 @@ impl Database {
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS scheduled_prompts (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                interval_ms INTEGER NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_run TEXT,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS token_usage (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 conversation_id TEXT NOT NULL,
@@ -86,6 +95,19 @@ impl Database {
         if !has_project_id {
             conn.execute_batch("ALTER TABLE conversations ADD COLUMN project_id TEXT;").ok();
         }
+
+        // Migration: create scheduled_prompts table if missing
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS scheduled_prompts (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                interval_ms INTEGER NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_run TEXT,
+                created_at TEXT NOT NULL
+            );"
+        ).ok();
 
         // Migration: create token_usage table if missing
         conn.execute_batch(
@@ -331,6 +353,74 @@ impl Database {
         }
     }
 
+    pub fn list_scheduled_prompts(&self) -> Result<Vec<ScheduledPrompt>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, prompt, interval_ms, enabled, last_run, created_at FROM scheduled_prompts ORDER BY name ASC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ScheduledPrompt {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                prompt: row.get(2)?,
+                interval_ms: row.get(3)?,
+                enabled: row.get::<_, i64>(4)? != 0,
+                last_run: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn insert_scheduled_prompt(&self, id: &str, name: &str, prompt: &str, interval_ms: i64) -> Result<(), rusqlite::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO scheduled_prompts (id, name, prompt, interval_ms, enabled, created_at) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
+            params![id, name, prompt, interval_ms, &now],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_scheduled_prompt(&self, id: &str, name: &str, prompt: &str, interval_ms: i64, enabled: bool) -> Result<(), rusqlite::Error> {
+        self.conn.execute(
+            "UPDATE scheduled_prompts SET name = ?1, prompt = ?2, interval_ms = ?3, enabled = ?4 WHERE id = ?5",
+            params![name, prompt, interval_ms, enabled as i64, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_scheduled_prompt(&self, id: &str) -> Result<(), rusqlite::Error> {
+        self.conn.execute("DELETE FROM scheduled_prompts WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn update_scheduled_prompt_last_run(&self, id: &str) -> Result<(), rusqlite::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE scheduled_prompts SET last_run = ?1 WHERE id = ?2",
+            params![&now, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_due_scheduled_prompts(&self) -> Result<Vec<ScheduledPrompt>, rusqlite::Error> {
+        let now = chrono::Utc::now();
+        let all = self.list_scheduled_prompts()?;
+        Ok(all.into_iter().filter(|sp| {
+            if !sp.enabled { return false; }
+            match &sp.last_run {
+                Some(lr) => {
+                    if let Ok(last) = chrono::DateTime::parse_from_rfc3339(lr) {
+                        let elapsed = now.signed_duration_since(last).num_milliseconds();
+                        elapsed >= sp.interval_ms
+                    } else {
+                        true
+                    }
+                }
+                None => true,
+            }
+        }).collect())
+    }
+
     pub fn fork_conversation(&self, source_conversation_id: &str, at_message_id: &str, new_title: &str) -> Result<String, rusqlite::Error> {
         let new_id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
@@ -480,6 +570,17 @@ pub struct Prompt {
     pub id: String,
     pub name: String,
     pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ScheduledPrompt {
+    pub id: String,
+    pub name: String,
+    pub prompt: String,
+    pub interval_ms: i64,
+    pub enabled: bool,
+    pub last_run: Option<String>,
     pub created_at: String,
 }
 
@@ -779,6 +880,30 @@ pub fn update_prompt(state: tauri::State<AppState>, id: String, name: String, co
 #[tauri::command]
 pub fn delete_prompt(state: tauri::State<AppState>, id: String) -> Result<(), String> {
     state.db.lock().unwrap().delete_prompt_by_id(&id).map_err(|e| e.to_string())
+}
+
+// --- Scheduled Prompts ---
+
+#[tauri::command]
+pub fn get_scheduled_prompts(state: tauri::State<AppState>) -> Result<Vec<ScheduledPrompt>, String> {
+    state.db.lock().unwrap().list_scheduled_prompts().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_scheduled_prompt(state: tauri::State<AppState>, name: String, prompt: String, interval_ms: i64) -> Result<String, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    state.db.lock().unwrap().insert_scheduled_prompt(&id, &name, &prompt, interval_ms).map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn update_scheduled_prompt(state: tauri::State<AppState>, id: String, name: String, prompt: String, interval_ms: i64, enabled: bool) -> Result<(), String> {
+    state.db.lock().unwrap().update_scheduled_prompt(&id, &name, &prompt, interval_ms, enabled).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_scheduled_prompt(state: tauri::State<AppState>, id: String) -> Result<(), String> {
+    state.db.lock().unwrap().delete_scheduled_prompt(&id).map_err(|e| e.to_string())
 }
 
 // --- Conversation Branching ---

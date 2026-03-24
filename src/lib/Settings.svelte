@@ -45,6 +45,13 @@
   let newCmdCommand = $state("");
   let newCmdDescription = $state("");
 
+  // Scheduled Prompts
+  let scheduledPrompts = $state([]);
+  let newSchedName = $state("");
+  let newSchedPrompt = $state("");
+  let newSchedInterval = $state("3600000"); // 1 hour default
+  let editingSched = $state(null);
+
   // Update settings
   let updateInterval = $state("86400000");
 
@@ -93,6 +100,7 @@
       await loadMcpServers();
       await loadPrompts();
       await loadCustomCommands();
+      await loadScheduledPrompts();
       updateInterval = await invoke("get_update_interval");
 
       try {
@@ -216,6 +224,47 @@
   async function removeProject(id) {
     try { await invoke("delete_project", { id }); await loadProjects(); }
     catch (e) { error = String(e); }
+  }
+
+  async function loadScheduledPrompts() {
+    try { scheduledPrompts = await invoke("get_scheduled_prompts"); }
+    catch (e) { console.error("Failed to load scheduled prompts:", e); }
+  }
+
+  async function addScheduledPrompt() {
+    if (!newSchedName.trim() || !newSchedPrompt.trim()) return;
+    try {
+      await invoke("create_scheduled_prompt", {
+        name: newSchedName.trim(),
+        prompt: newSchedPrompt.trim(),
+        intervalMs: parseInt(newSchedInterval) || 3600000,
+      });
+      newSchedName = ""; newSchedPrompt = ""; newSchedInterval = "3600000";
+      await loadScheduledPrompts();
+    } catch (e) { error = String(e); }
+  }
+
+  async function saveScheduledPrompt(sp) {
+    try {
+      await invoke("update_scheduled_prompt", {
+        id: sp.id, name: sp.name, prompt: sp.prompt,
+        intervalMs: sp.interval_ms, enabled: sp.enabled,
+      });
+      editingSched = null;
+      await loadScheduledPrompts();
+    } catch (e) { error = String(e); }
+  }
+
+  async function removeScheduledPrompt(id) {
+    try { await invoke("delete_scheduled_prompt", { id }); await loadScheduledPrompts(); }
+    catch (e) { error = String(e); }
+  }
+
+  function formatInterval(ms) {
+    if (ms >= 86400000) return `${Math.round(ms / 86400000)}d`;
+    if (ms >= 3600000) return `${Math.round(ms / 3600000)}h`;
+    if (ms >= 60000) return `${Math.round(ms / 60000)}m`;
+    return `${ms}ms`;
   }
 
   async function loadPrompts() {
@@ -668,6 +717,66 @@
       <p class="error">{error}</p>
     {/if}
 
+    <div class="setting-group">
+      <label>Scheduled Prompts</label>
+      <p class="hint">Automatically send prompts at recurring intervals. Creates a new conversation each time.</p>
+
+      {#each scheduledPrompts as sp (sp.id)}
+        <div class="project-item">
+          {#if editingSched === sp.id}
+            <input type="text" bind:value={sp.name} placeholder="Name" />
+            <textarea bind:value={sp.prompt} placeholder="Prompt text..." rows="2"></textarea>
+            <select bind:value={sp.interval_ms}>
+              <option value={300000}>Every 5 minutes</option>
+              <option value={900000}>Every 15 minutes</option>
+              <option value={1800000}>Every 30 minutes</option>
+              <option value={3600000}>Every hour</option>
+              <option value={21600000}>Every 6 hours</option>
+              <option value={43200000}>Every 12 hours</option>
+              <option value={86400000}>Every day</option>
+            </select>
+            <div class="project-actions">
+              <button class="small-btn accent" onclick={() => saveScheduledPrompt(sp)}>Save</button>
+              <button class="small-btn" onclick={() => (editingSched = null)}>Cancel</button>
+            </div>
+          {:else}
+            <div class="project-header">
+              <span class="project-name">
+                {sp.name}
+                <span class="sched-interval">{formatInterval(sp.interval_ms)}</span>
+                {#if !sp.enabled}<span class="sched-disabled">paused</span>{/if}
+              </span>
+              <div class="project-actions">
+                <button class="small-btn" onclick={() => { sp.enabled = !sp.enabled; saveScheduledPrompt(sp); }}>
+                  {sp.enabled ? "Pause" : "Resume"}
+                </button>
+                <button class="small-btn" onclick={() => (editingSched = sp.id)}>Edit</button>
+                <button class="small-btn danger" onclick={() => removeScheduledPrompt(sp.id)}>Delete</button>
+              </div>
+            </div>
+            <p class="project-context-preview">{sp.prompt.length > 80 ? sp.prompt.slice(0, 80) + '...' : sp.prompt}</p>
+          {/if}
+        </div>
+      {/each}
+
+      <div class="new-project">
+        <input type="text" bind:value={newSchedName} placeholder="Schedule name" />
+        <textarea bind:value={newSchedPrompt} placeholder="Prompt to send..." rows="2"></textarea>
+        <select bind:value={newSchedInterval}>
+          <option value="300000">Every 5 minutes</option>
+          <option value="900000">Every 15 minutes</option>
+          <option value="1800000">Every 30 minutes</option>
+          <option value="3600000">Every hour</option>
+          <option value="21600000">Every 6 hours</option>
+          <option value="43200000">Every 12 hours</option>
+          <option value="86400000">Every day</option>
+        </select>
+        <button class="small-btn accent" onclick={addScheduledPrompt} disabled={!newSchedName.trim() || !newSchedPrompt.trim()}>
+          Add Schedule
+        </button>
+      </div>
+    </div>
+
     <button class="save-btn" onclick={save}>
       {saved ? "Saved!" : "Save Settings"}
     </button>
@@ -897,6 +1006,24 @@
     font-size: 12px;
     color: var(--text-muted);
     cursor: pointer;
+  }
+
+  .sched-interval {
+    font-size: 11px;
+    color: var(--accent);
+    background: rgba(78, 204, 163, 0.15);
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: 6px;
+  }
+
+  .sched-disabled {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: 4px;
   }
 
   .project-overrides {

@@ -86,6 +86,16 @@
       currentView = "chat";
       deepLinkText = event.payload;
     });
+
+    // Listen for scheduled prompts
+    listen("scheduled-prompt", (event) => {
+      const { prompt } = event.payload;
+      if (prompt) {
+        activeConversationId = null;
+        currentView = "chat";
+        deepLinkText = prompt;
+      }
+    });
   });
 
   onDestroy(async () => {
