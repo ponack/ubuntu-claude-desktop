@@ -1,5 +1,6 @@
 <script>
   import { invoke } from "@tauri-apps/api/core";
+  import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
 
   let { onClose } = $props();
@@ -58,6 +59,12 @@
   // Token Usage Analytics
   let totalUsage = $state(null);
 
+  // Database
+  let dbPath = $state("");
+  let dbSize = $state(0);
+  let dbStatus = $state(""); // "", "backing-up", "restoring", "backed-up", "restored", "error"
+  let dbError = $state("");
+
   // About
   let appVersion = $state("");
   let appArch = $state("");
@@ -114,6 +121,11 @@
         totalUsage = await invoke("get_total_usage");
       } catch (_) {}
 
+      try {
+        dbPath = await invoke("get_database_path");
+        dbSize = await invoke("get_database_size");
+      } catch (_) {}
+
       if (provider === "ollama") {
         fetchOllamaModels();
       }
@@ -121,6 +133,50 @@
       console.error("Failed to load settings:", e);
     }
   });
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
+  }
+
+  async function backupDatabase() {
+    dbStatus = "";
+    dbError = "";
+    try {
+      const dest = await saveDialog({
+        defaultPath: `ucd-backup-${new Date().toISOString().slice(0, 10)}.db`,
+        filters: [{ name: "SQLite Database", extensions: ["db"] }],
+      });
+      if (!dest) return;
+      dbStatus = "backing-up";
+      await invoke("backup_database", { destination: dest });
+      dbStatus = "backed-up";
+      setTimeout(() => { if (dbStatus === "backed-up") dbStatus = ""; }, 3000);
+    } catch (e) {
+      dbError = String(e);
+      dbStatus = "error";
+    }
+  }
+
+  async function restoreDatabase() {
+    dbStatus = "";
+    dbError = "";
+    try {
+      const source = await openDialog({
+        filters: [{ name: "SQLite Database", extensions: ["db"] }],
+        multiple: false,
+      });
+      if (!source) return;
+      const path = typeof source === "string" ? source : source.path;
+      dbStatus = "restoring";
+      await invoke("restore_database", { source: path });
+      dbStatus = "restored";
+    } catch (e) {
+      dbError = String(e);
+      dbStatus = "error";
+    }
+  }
 
   async function fetchOllamaModels() {
     fetchingOllamaModels = true;
@@ -805,6 +861,31 @@
     </div>
     {/if}
 
+    <div class="setting-group">
+      <h3>Database</h3>
+      <div class="db-info">
+        <span class="db-path" title={dbPath}>{dbPath || "..."}</span>
+        <span class="db-size">{formatBytes(dbSize)}</span>
+      </div>
+      <div class="db-actions">
+        <button class="settings-btn-action" onclick={backupDatabase} disabled={dbStatus === "backing-up" || dbStatus === "restoring"}>
+          {dbStatus === "backing-up" ? "Backing up..." : "Backup Database"}
+        </button>
+        <button class="settings-btn-action danger" onclick={restoreDatabase} disabled={dbStatus === "backing-up" || dbStatus === "restoring"}>
+          {dbStatus === "restoring" ? "Restoring..." : "Restore from Backup"}
+        </button>
+      </div>
+      {#if dbStatus === "backed-up"}
+        <div class="db-success">Backup saved successfully.</div>
+      {/if}
+      {#if dbStatus === "restored"}
+        <div class="db-success">Database restored. Restart the app to load restored data.</div>
+      {/if}
+      {#if dbStatus === "error"}
+        <div class="db-error">{dbError}</div>
+      {/if}
+    </div>
+
     <div class="about-section">
       <h3>About</h3>
       <div class="about-info">
@@ -1089,5 +1170,85 @@
 
   .about-info a:hover {
     text-decoration: underline;
+  }
+
+  .db-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-bottom: 12px;
+  }
+
+  .db-path {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: "JetBrains Mono", "Fira Code", monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    margin-right: 12px;
+  }
+
+  .db-size {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .db-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .settings-btn-action {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    background: var(--accent);
+    color: white;
+    transition: background 0.15s;
+  }
+
+  .settings-btn-action:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+
+  .settings-btn-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .settings-btn-action.danger {
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+  }
+
+  .settings-btn-action.danger:hover:not(:disabled) {
+    background: rgba(233, 69, 96, 0.1);
+  }
+
+  .db-success {
+    padding: 8px 12px;
+    background: rgba(78, 204, 163, 0.15);
+    color: var(--success);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .db-error {
+    padding: 8px 12px;
+    background: rgba(233, 69, 96, 0.1);
+    color: var(--danger);
+    border-radius: 6px;
+    font-size: 12px;
   }
 </style>

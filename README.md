@@ -215,11 +215,11 @@ ubuntu-claude-desktop/
 - [x] Conversation analytics and token usage tracking
 - [x] Multi-window support
 
-### Phase 7 — Scale & Reliability
-- [ ] Conversation pagination / virtual scroll
-- [ ] Database backup and restore
-- [ ] Performance profiling and optimization
-- [ ] Offline mode (queue messages when disconnected)
+### Phase 7 — Scale & Reliability ✅
+- [x] Conversation pagination / virtual scroll
+- [x] Database backup and restore
+- [x] Performance profiling and optimization
+- [x] Offline mode (queue messages when disconnected)
 
 ### Phase 8 — Co-Work (Artifacts)
 - [ ] Persistent artifacts panel (side panel alongside chat)

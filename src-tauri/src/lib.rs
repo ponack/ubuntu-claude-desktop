@@ -122,6 +122,8 @@ pub fn run() {
             providers::fetch_ollama_models,
             db::get_conversations,
             db::get_messages,
+            db::get_messages_paginated,
+            db::get_message_count,
             db::create_conversation,
             db::delete_conversation,
             db::delete_messages_from,
@@ -170,6 +172,10 @@ pub fn run() {
             db::fork_conversation,
             db::get_conversation_usage,
             db::get_total_usage,
+            db::backup_database,
+            db::restore_database,
+            db::get_database_path,
+            db::get_database_size,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

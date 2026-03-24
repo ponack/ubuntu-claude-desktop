@@ -182,6 +182,38 @@ impl Database {
         rows.collect()
     }
 
+    pub fn list_messages_paginated(&self, conversation_id: &str, limit: i64, offset: i64) -> Result<Vec<Message>, rusqlite::Error> {
+        // Returns the most recent `limit` messages, offset from the end
+        // We query descending then reverse so the caller gets chronological order
+        let mut stmt = self.conn.prepare(
+            "SELECT id, conversation_id, role, content, created_at FROM messages WHERE conversation_id = ?1 ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"
+        )?;
+        let rows = stmt.query_map(params![conversation_id, limit, offset], |row| {
+            Ok(Message {
+                id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })?;
+        let mut msgs: Vec<Message> = rows.collect::<Result<Vec<_>, _>>()?;
+        msgs.reverse();
+        Ok(msgs)
+    }
+
+    pub fn count_messages(&self, conversation_id: &str) -> Result<i64, rusqlite::Error> {
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
+            params![conversation_id],
+            |row| row.get(0),
+        )
+    }
+
+    pub fn get_db_path(&self) -> String {
+        self.conn.path().unwrap_or("").to_string()
+    }
+
     pub fn insert_conversation(&self, id: &str, title: &str) -> Result<(), rusqlite::Error> {
         let now = chrono::Utc::now().to_rfc3339();
         self.conn.execute(
@@ -621,6 +653,16 @@ pub fn get_messages(state: tauri::State<AppState>, conversation_id: String) -> R
 }
 
 #[tauri::command]
+pub fn get_messages_paginated(state: tauri::State<AppState>, conversation_id: String, limit: i64, offset: i64) -> Result<Vec<Message>, String> {
+    state.db.lock().unwrap().list_messages_paginated(&conversation_id, limit, offset).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_message_count(state: tauri::State<AppState>, conversation_id: String) -> Result<i64, String> {
+    state.db.lock().unwrap().count_messages(&conversation_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn create_conversation(state: tauri::State<AppState>, title: String) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
     state.db.lock().unwrap().insert_conversation(&id, &title).map_err(|e| e.to_string())?;
@@ -990,4 +1032,55 @@ pub fn set_skipped_version(state: tauri::State<AppState>, version: String) -> Re
     } else {
         state.db.lock().unwrap().set_setting("skipped_version", &version).map_err(|e| e.to_string())
     }
+}
+
+// --- Database Backup & Restore ---
+
+#[tauri::command]
+pub fn backup_database(state: tauri::State<AppState>, destination: String) -> Result<(), String> {
+    let db = state.db.lock().unwrap();
+    let db_path = db.get_db_path();
+    if db_path.is_empty() {
+        return Err("Cannot determine database path".into());
+    }
+    // Checkpoint WAL to ensure all data is flushed
+    db.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").map_err(|e| e.to_string())?;
+    std::fs::copy(&db_path, &destination).map_err(|e| format!("Backup failed: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn restore_database(state: tauri::State<AppState>, source: String) -> Result<(), String> {
+    // Validate the source file is a valid SQLite database
+    let test_conn = rusqlite::Connection::open(&source)
+        .map_err(|e| format!("Invalid database file: {}", e))?;
+    test_conn.query_row("SELECT COUNT(*) FROM conversations", [], |_| Ok(()))
+        .map_err(|_| "Invalid UCD database: missing conversations table".to_string())?;
+    drop(test_conn);
+
+    let db = state.db.lock().unwrap();
+    let db_path = db.get_db_path();
+    if db_path.is_empty() {
+        return Err("Cannot determine database path".into());
+    }
+    // Copy source over current database
+    std::fs::copy(&source, &db_path).map_err(|e| format!("Restore failed: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_database_path(state: tauri::State<AppState>) -> Result<String, String> {
+    let db = state.db.lock().unwrap();
+    Ok(db.get_db_path())
+}
+
+#[tauri::command]
+pub fn get_database_size(state: tauri::State<AppState>) -> Result<u64, String> {
+    let db = state.db.lock().unwrap();
+    let db_path = db.get_db_path();
+    if db_path.is_empty() {
+        return Ok(0);
+    }
+    let metadata = std::fs::metadata(&db_path).map_err(|e| e.to_string())?;
+    Ok(metadata.len())
 }
