@@ -47,9 +47,18 @@
     return text;
   }
 
-  let renderedHtml = $derived(
-    role === "error" ? content : marked.parse(renderLatex(content || ""))
-  );
+  // Cache markdown rendering to avoid re-parsing unchanged content
+  let cachedContent = "";
+  let cachedHtml = "";
+
+  let renderedHtml = $derived.by(() => {
+    if (role === "error") return content;
+    const raw = content || "";
+    if (raw === cachedContent) return cachedHtml;
+    cachedContent = raw;
+    cachedHtml = marked.parse(renderLatex(raw));
+    return cachedHtml;
+  });
 
   function startEdit() {
     editText = content;

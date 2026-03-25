@@ -1,6 +1,7 @@
 <script>
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open } from "@tauri-apps/plugin-dialog";
   import { sendNotification, isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
   import { onMount, tick } from "svelte";
@@ -31,21 +32,61 @@
   let agentSteps = $state([]); // [{step, description, status}]
   let agentRunning = $state(false);
 
+  // Pagination state
+  const PAGE_SIZE = 50;
+  let totalMessageCount = $state(0);
+  let loadedOffset = $state(0); // how many older messages we've loaded beyond the initial page
+  let hasMoreMessages = $derived(messages.length < totalMessageCount);
+  let loadingMore = $state(false);
+  let loadMoreSentinel; // intersection observer target
+
+  // Offline mode
+  let isOffline = $state(!navigator.onLine);
+  let offlineQueue = $state([]); // queued messages when offline
+
   async function loadMessages() {
     if (!conversationId) {
       messages = [];
       activeArtifact = null;
       currentProjectId = null;
       tokenUsage = null;
+      totalMessageCount = 0;
+      loadedOffset = 0;
       return;
     }
     try {
-      messages = await invoke("get_messages", { conversationId });
+      totalMessageCount = await invoke("get_message_count", { conversationId });
+      // Load the most recent PAGE_SIZE messages
+      messages = await invoke("get_messages_paginated", { conversationId, limit: PAGE_SIZE, offset: 0 });
+      loadedOffset = 0;
       const projId = await invoke("get_conversation_project", { conversationId });
       currentProjectId = projId || null;
       loadTokenUsage();
     } catch (e) {
       console.error("Failed to load messages:", e);
+    }
+  }
+
+  async function loadOlderMessages() {
+    if (!conversationId || loadingMore || !hasMoreMessages) return;
+    loadingMore = true;
+    try {
+      const newOffset = loadedOffset + PAGE_SIZE;
+      const older = await invoke("get_messages_paginated", { conversationId, limit: PAGE_SIZE, offset: newOffset });
+      if (older.length > 0) {
+        // Preserve scroll position
+        const prevHeight = messagesContainer?.scrollHeight || 0;
+        messages = [...older, ...messages];
+        loadedOffset = newOffset;
+        await tick();
+        if (messagesContainer) {
+          messagesContainer.scrollTop = messagesContainer.scrollHeight - prevHeight;
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load older messages:", e);
+    } finally {
+      loadingMore = false;
     }
   }
 
@@ -75,7 +116,59 @@
     loadCustomCommands();
     loadActiveModel();
     if (chatInput) chatInput.focus();
+
+    // Tauri native drag-and-drop (HTML5 drag-drop doesn't work for desktop files in Tauri)
+    const unlistenDragDrop = getCurrentWindow().onDragDropEvent((event) => {
+      if (event.payload.type === "over") {
+        isDragging = true;
+      } else if (event.payload.type === "drop") {
+        isDragging = false;
+        if (event.payload.paths && event.payload.paths.length > 0) {
+          processDroppedPaths(event.payload.paths);
+        }
+      } else if (event.payload.type === "leave") {
+        isDragging = false;
+      }
+    });
+
+    // Offline mode listeners
+    const handleOnline = () => {
+      isOffline = false;
+      flushOfflineQueue();
+    };
+    const handleOffline = () => { isOffline = true; };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      unlistenDragDrop.then((fn) => fn());
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
   });
+
+  // Intersection observer for loading older messages
+  $effect(() => {
+    if (!loadMoreSentinel) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && hasMoreMessages && !loadingMore) {
+        loadOlderMessages();
+      }
+    }, { root: messagesContainer, threshold: 0.1 });
+    observer.observe(loadMoreSentinel);
+    return () => observer.disconnect();
+  });
+
+  async function flushOfflineQueue() {
+    if (offlineQueue.length === 0) return;
+    const queue = [...offlineQueue];
+    offlineQueue = [];
+    for (const item of queue) {
+      inputText = item.text;
+      attachments = item.attachments || [];
+      await sendMessage();
+    }
+  }
 
   $effect(() => {
     if (deepLinkText) {
@@ -253,11 +346,16 @@
     };
   });
 
+  let scrollRafId = null;
   async function scrollToBottom() {
     await tick();
-    if (messagesContainer) {
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
+    if (scrollRafId) cancelAnimationFrame(scrollRafId);
+    scrollRafId = requestAnimationFrame(() => {
+      if (messagesContainer) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+      scrollRafId = null;
+    });
   }
 
   async function addAttachment() {
@@ -308,43 +406,20 @@
 
   let isDragging = $state(false);
 
-  function handleDragOver(e) {
-    e.preventDefault();
-    isDragging = true;
-  }
-
-  function handleDragLeave(e) {
-    e.preventDefault();
-    isDragging = false;
-  }
-
-  function handleDrop(e) {
-    e.preventDefault();
-    isDragging = false;
-    const files = e.dataTransfer?.files;
-    if (!files) return;
-    processDroppedFiles(files);
-  }
-
-  function processDroppedFiles(fileList) {
+  function processDroppedPaths(paths) {
     const imageExts = ["png", "jpg", "jpeg", "gif", "webp"];
     const mediaTypes = {
       png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
       gif: "image/gif", webp: "image/webp",
     };
-    for (const file of fileList) {
-      const ext = file.name.split(".").pop().toLowerCase();
+    for (const filePath of paths) {
+      const ext = filePath.split(".").pop().toLowerCase();
       if (!imageExts.includes(ext)) continue;
-      const reader = new FileReader();
-      reader.onload = () => {
-        attachments = [...attachments, {
-          path: null,
-          data: reader.result.split(",")[1],
-          media_type: mediaTypes[ext] || "image/png",
-          name: file.name,
-        }];
-      };
-      reader.readAsDataURL(file);
+      attachments = [...attachments, {
+        path: filePath,
+        media_type: mediaTypes[ext] || "image/png",
+        name: filePath.split("/").pop(),
+      }];
     }
   }
 
@@ -385,6 +460,14 @@ Be thorough in each step. Do not skip steps or combine them.`;
   async function sendMessage() {
     let text = inputText.trim();
     if ((!text && attachments.length === 0) || isStreaming) return;
+
+    // Offline mode: queue the message
+    if (isOffline) {
+      offlineQueue = [...offlineQueue, { text, attachments: [...attachments] }];
+      inputText = "";
+      attachments = [];
+      return;
+    }
 
     // If agent mode is on and this is the first message (triggering agent), prepend instruction
     if (agentMode && !agentRunning && text !== "Continue with the next step.") {
@@ -607,12 +690,30 @@ Be thorough in each step. Do not skip steps or combine them.`;
         </div>
       </div>
     {/if}
+    {#if isOffline}
+      <div class="offline-banner">
+        You are offline. Messages will be queued and sent when connection is restored.
+        {#if offlineQueue.length > 0}
+          <span class="queue-count">({offlineQueue.length} queued)</span>
+        {/if}
+      </div>
+    {/if}
     <div class="messages" bind:this={messagesContainer} role="log" aria-live="polite" aria-label="Chat messages">
       {#if messages.length === 0 && !conversationId}
         <div class="empty-state">
           <img src="/assets/logo.svg" alt="Ubuntu Claude Desktop" class="empty-logo" />
           <h2>Ubuntu Claude Desktop</h2>
           <p>Start a conversation by typing a message below.</p>
+        </div>
+      {/if}
+
+      {#if hasMoreMessages}
+        <div class="load-more-sentinel" bind:this={loadMoreSentinel}>
+          {#if loadingMore}
+            <span class="loading-indicator">Loading older messages...</span>
+          {:else}
+            <button class="load-more-btn" onclick={loadOlderMessages}>Load older messages</button>
+          {/if}
         </div>
       {/if}
 
@@ -642,8 +743,7 @@ Be thorough in each step. Do not skip steps or combine them.`;
       </div>
     {/if}
 
-    <div class="input-area" class:dragging={isDragging}
-      ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop}>
+    <div class="input-area" class:dragging={isDragging}>
     {#if attachments.length > 0}
       <div class="attachments-preview">
         {#each attachments as att, i}
@@ -1153,5 +1253,47 @@ Be thorough in each step. Do not skip steps or combine them.`;
     background: rgba(78, 204, 163, 0.3);
     color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent);
+  }
+
+  .offline-banner {
+    padding: 8px 20px;
+    background: rgba(255, 165, 0, 0.15);
+    color: #e0a030;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    border-bottom: 1px solid rgba(255, 165, 0, 0.3);
+    flex-shrink: 0;
+  }
+
+  .queue-count {
+    font-weight: 600;
+  }
+
+  .load-more-sentinel {
+    display: flex;
+    justify-content: center;
+    padding: 8px;
+    flex-shrink: 0;
+  }
+
+  .load-more-btn {
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .load-more-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+  }
+
+  .loading-indicator {
+    font-size: 12px;
+    color: var(--text-muted);
+    animation: pulse 1s infinite;
   }
 </style>
