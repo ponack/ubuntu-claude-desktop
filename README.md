@@ -20,29 +20,29 @@
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/empty-state.png" alt="Welcome screen" width="700" />
+  <img src="screenshots/empty-state-light.png" alt="Welcome screen (light theme)" width="700" />
 </p>
-<p align="center"><em>Clean welcome screen with quick-start instructions</em></p>
+<p align="center"><em>Welcome screen — light theme with conversation history</em></p>
 
 <p align="center">
-  <img src="screenshots/chat.png" alt="Chat with code highlighting" width="700" />
+  <img src="screenshots/empty-state-dark.png" alt="Welcome screen (dark theme)" width="700" />
 </p>
-<p align="center"><em>Streaming chat with syntax-highlighted code blocks</em></p>
+<p align="center"><em>Welcome screen — dark theme</em></p>
 
 <p align="center">
-  <img src="screenshots/sidebar.png" alt="Conversation sidebar" width="700" />
+  <img src="screenshots/sidebar.png" alt="Chat conversation" width="700" />
 </p>
-<p align="center"><em>Conversation history with search and management</em></p>
+<p align="center"><em>Chat with markdown rendering and conversation sidebar</em></p>
 
 <p align="center">
-  <img src="screenshots/settings.png" alt="Settings panel" width="700" />
+  <img src="screenshots/settings.png" alt="Settings — General" width="700" />
 </p>
-<p align="center"><em>Multi-provider settings — Anthropic, OpenAI, or Ollama</em></p>
+<p align="center"><em>Tabbed settings with auto-save — provider, model, and system prompt</em></p>
 
 <p align="center">
-  <img src="screenshots/theme.png" alt="Custom CSS themes" width="700" />
+  <img src="screenshots/themes.png" alt="Settings — Appearance" width="700" />
 </p>
-<p align="center"><em>Custom CSS themes with built-in presets</em></p>
+<p align="center"><em>Appearance settings — theme, color schemes, and custom CSS</em></p>
 
 ---
 

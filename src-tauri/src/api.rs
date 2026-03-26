@@ -1003,38 +1003,82 @@ pub async fn install_update(deb_path: String) -> Result<(), String> {
         return Err("Update file not found".to_string());
     }
 
+    // Build a script that installs the new .deb and removes the old package
+    // in a single elevated session to avoid a double auth prompt
+    let script = format!(
+        r#"#!/bin/sh
+dpkg -i "{deb}" || exit 1
+dpkg -s ubuntu-claude-desktop >/dev/null 2>&1 && dpkg --remove ubuntu-claude-desktop
+exit 0
+"#,
+        deb = deb_path.replace('"', r#"\""#),
+    );
+    let script_path = format!("/tmp/lcd-update-{}.sh", std::process::id());
+    std::fs::write(&script_path, &script)
+        .map_err(|e| format!("Failed to write update script: {}", e))?;
+
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| format!("Failed to set script permissions: {}", e))?;
+
     let output = std::process::Command::new("pkexec")
-        .arg("dpkg")
-        .arg("-i")
-        .arg(&deb_path)
+        .arg(&script_path)
         .output()
         .map_err(|e| format!("Failed to launch installer: {}", e))?;
+
+    // Clean up scripts and temp file
+    let _ = std::fs::remove_file(&script_path);
+    let _ = std::fs::remove_file(&deb_path);
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("Installation failed: {}", stderr));
     }
 
-    // Clean up temp file
-    let _ = std::fs::remove_file(&deb_path);
-
     Ok(())
+}
+
+/// Find the installed binary by querying dpkg for our package's executables.
+/// Returns the first /usr/bin/* match, which is the main app binary.
+fn find_installed_binary() -> Option<String> {
+    // Try the known binary name first
+    let known = "/usr/bin/linux-claude-desktop";
+    if std::path::Path::new(known).exists() {
+        return Some(known.to_string());
+    }
+
+    // Fallback: search dpkg for any package matching our app name pattern
+    let output = std::process::Command::new("dpkg")
+        .args(["-S", "*/bin/linux-claude-desktop"])
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Format: "package-name: /usr/bin/binary-name"
+        if let Some(path) = stdout.split_whitespace().last() {
+            if std::path::Path::new(path).exists() {
+                return Some(path.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 /// Restart the application by writing a relaunch script and executing it fully detached
 #[tauri::command]
 pub async fn restart_app(_app: tauri::AppHandle) -> Result<(), String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("Failed to get executable path: {}", e))?;
-    // After dpkg replaces the binary, /proc/self/exe gets a " (deleted)" suffix — strip it
-    let exe_str = exe.to_string_lossy().replace(" (deleted)", "");
+    // After an update, the binary name may have changed (e.g. rebrand).
+    // Query dpkg for the actual installed binary, falling back to current_exe.
+    let exe_str = find_installed_binary().unwrap_or_else(|| {
+        let exe = std::env::current_exe().unwrap_or_default();
+        exe.to_string_lossy().replace(" (deleted)", "")
+    });
     let pid = std::process::id();
 
-    // Write a script that waits for this process to die, then launches the new one
-    // The script strips " (deleted)" as a safety net for older versions
     let script = format!(
         r#"#!/bin/sh
-exec > /tmp/ucd-restart.log 2>&1
+exec > /tmp/lcd-restart.log 2>&1
 EXE_PATH=$(echo "{exe_str}" | sed 's/ (deleted)$//')
 echo "Waiting for PID {pid} to exit..."
 while kill -0 {pid} 2>/dev/null; do sleep 0.2; done
@@ -1045,7 +1089,7 @@ exec "$EXE_PATH"
         pid = pid,
         exe_str = exe_str,
     );
-    let script_path = format!("/tmp/ucd-restart-{}.sh", pid);
+    let script_path = format!("/tmp/lcd-restart-{}.sh", pid);
     std::fs::write(&script_path, &script)
         .map_err(|e| format!("Failed to write restart script: {}", e))?;
 
