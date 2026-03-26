@@ -221,15 +221,58 @@ ubuntu-claude-desktop/
 - [x] Performance profiling and optimization
 - [x] Offline mode (queue messages when disconnected)
 
-### Phase 8 — Co-Work (Artifacts)
-- [ ] Persistent artifacts panel (side panel alongside chat)
-- [ ] Artifact types (Code, Markdown, Mermaid diagrams, HTML/SVG, React components)
-- [ ] Live editing with syntax highlighting
-- [ ] Iterate with Claude (send artifact state back for modification)
-- [ ] Multiple artifacts per conversation (tab-based management)
-- [ ] Artifact versioning (diff between versions, revert)
-- [ ] Artifact persistence (save to DB, restore on reopen)
-- [ ] Export artifacts (save to file, clipboard, open in external editor)
+### Phase 8 — Co-Work (Artifacts) ✅
+- [x] Persistent artifacts panel (side panel alongside chat)
+- [x] Artifact types (Code, Markdown, Mermaid diagrams, HTML/SVG, React components)
+- [x] Live editing with syntax highlighting (CodeMirror 6)
+- [x] Iterate with Claude (send artifact state back for modification)
+- [x] Multiple artifacts per conversation (tab-based management)
+- [x] Artifact versioning (diff between versions, revert)
+- [x] Artifact persistence (save to DB, restore on reopen)
+- [x] Export artifacts (save to file, clipboard, open in external editor)
+- [x] Code splitting (CodeMirror, KaTeX, highlight.js, Mermaid in separate lazy chunks)
+
+### Phase 8.5 — Housekeeping
+- [ ] Reduce highlight.js bundle (import only common languages instead of all)
+- [ ] Lazy-load Mermaid renderer only when mermaid artifacts are opened
+- [ ] Add artifact search/filter in the panel
+- [ ] Keyboard shortcuts for artifact panel (Ctrl+E edit, Ctrl+S save, etc.)
+- [ ] Artifact templates (starter code for common patterns)
+
+### Phase 9 — Knowledge & Context
+- [ ] Local knowledge base (index local files/folders for RAG context)
+- [ ] File watcher (auto-update context when watched files change)
+- [ ] Web page import (fetch and summarize URLs as context)
+- [ ] Conversation memory (persistent facts Claude remembers across conversations)
+- [ ] Context window visualization (show token budget usage in real-time)
+
+### Phase 10 — Multi-Model & Comparison
+- [ ] Side-by-side model comparison (same prompt to multiple models)
+- [ ] Model routing rules (auto-select model based on task type)
+- [ ] Response grading/ranking (rate responses to track model quality)
+- [ ] Custom model endpoints (add arbitrary OpenAI-compatible providers)
+- [ ] Cost estimation per conversation (based on model pricing)
+
+### Phase 11 — Voice & Accessibility
+- [ ] Speech-to-text input (system mic via PipeWire/PulseAudio)
+- [ ] Text-to-speech output for responses
+- [ ] Screen reader support (ARIA landmarks, live regions)
+- [ ] High contrast and large text themes
+- [ ] Full keyboard-only navigation audit
+
+### Phase 12 — Terminal & Developer Tools
+- [ ] Embedded terminal panel (run commands Claude suggests)
+- [ ] Code execution sandbox (run Python/JS snippets in artifacts)
+- [ ] Git integration (view diffs, stage changes, commit from chat)
+- [ ] Project scaffolding (generate project structures from descriptions)
+- [ ] LSP integration (type checking and linting in artifact editor)
+
+### Phase 13 — Plugin System
+- [ ] Plugin API (JavaScript/TypeScript plugin interface)
+- [ ] Plugin marketplace / registry
+- [ ] Custom renderers via plugins (extend artifact types)
+- [ ] Custom commands via plugins (beyond shell commands)
+- [ ] Event hooks (on-message, on-response, on-artifact-create)
 
 ## Tech Stack
 
