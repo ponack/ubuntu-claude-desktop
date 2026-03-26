@@ -9,10 +9,13 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/ponack/linux-claude-desktop/releases/latest"><img src="https://img.shields.io/github/v/release/ponack/linux-claude-desktop?label=latest&logo=github" alt="Latest Release" /></a>
+  <a href="https://github.com/ponack/linux-claude-desktop/releases"><img src="https://img.shields.io/github/downloads/ponack/linux-claude-desktop/total?logo=github" alt="Downloads" /></a>
+  <a href="https://github.com/ponack/linux-claude-desktop/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/ponack/linux-claude-desktop/build.yml?logo=github&label=build" alt="Build Status" /></a>
   <img src="https://img.shields.io/badge/platform-Linux-blue?logo=linux" alt="Platform" />
   <img src="https://img.shields.io/badge/built_with-Tauri_v2-orange?logo=tauri" alt="Tauri" />
   <img src="https://img.shields.io/badge/frontend-Svelte_5-red?logo=svelte" alt="Svelte" />
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ponack/linux-claude-desktop" alt="License" /></a>
 </p>
 
 ---
