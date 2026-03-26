@@ -204,11 +204,41 @@ pub async fn send_message(
         // If project has its own system prompt, use it instead of the global one
         let effective_prompt = project_sys_prompt.or(base_prompt);
 
-        match (effective_prompt, project_context) {
+        let base = match (effective_prompt, project_context) {
             (Some(bp), Some(pc)) => Some(format!("{}\n\n---\nProject Context:\n{}", bp, pc)),
             (Some(bp), None) => Some(bp),
             (None, Some(pc)) => Some(format!("Project Context:\n{}", pc)),
             (None, None) => None,
+        };
+
+        // Inject memory entries
+        let memory_entries = db.list_memory_entries().unwrap_or_default();
+        let with_memory = if !memory_entries.is_empty() {
+            let mut mem_section = String::from("\n\n---\nUser Memory (persistent facts):");
+            for entry in &memory_entries {
+                mem_section.push_str(&format!("\n- {}: {}", entry.key, entry.value));
+            }
+            match base {
+                Some(b) => Some(format!("{}{}", b, mem_section)),
+                None => Some(mem_section.trim_start().to_string()),
+            }
+        } else {
+            base
+        };
+
+        // Inject enabled knowledge base entries
+        let knowledge_entries = db.get_enabled_knowledge_for_context(project_id.as_deref()).unwrap_or_default();
+        if !knowledge_entries.is_empty() {
+            let mut kb_section = String::from("\n\n---\nKnowledge Base:");
+            for entry in &knowledge_entries {
+                kb_section.push_str(&format!("\n## {}\n{}", entry.title, entry.content));
+            }
+            match with_memory {
+                Some(b) => Some(format!("{}{}", b, kb_section)),
+                None => Some(kb_section.trim_start().to_string()),
+            }
+        } else {
+            with_memory
         }
     };
 
@@ -1240,4 +1270,98 @@ pub async fn toggle_quickask(app: tauri::AppHandle) -> Result<(), String> {
         win.set_focus().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn import_url(url: String) -> Result<(String, String), String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let resp = client.get(&url)
+        .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) Linux-Claude-Desktop/1.0")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch URL: {}", e))?;
+
+    let html = resp.text().await.map_err(|e| format!("Failed to read response: {}", e))?;
+
+    // Extract title
+    let title = extract_html_title(&html).unwrap_or_else(|| url.clone());
+
+    // Strip HTML tags to get text content
+    let text = strip_html_tags(&html);
+
+    // Limit to 50K chars
+    let text = if text.len() > 50_000 {
+        text[..50_000].to_string()
+    } else {
+        text
+    };
+
+    Ok((title, text))
+}
+
+fn extract_html_title(html: &str) -> Option<String> {
+    let lower = html.to_lowercase();
+    let start = lower.find("<title")?;
+    let after_tag = lower[start..].find('>')?;
+    let content_start = start + after_tag + 1;
+    let end = lower[content_start..].find("</title>")?;
+    let title = &html[content_start..content_start + end];
+    let title = title.trim();
+    if title.is_empty() { None } else { Some(title.to_string()) }
+}
+
+fn strip_html_tags(html: &str) -> String {
+    let mut result = String::with_capacity(html.len());
+    let mut in_tag = false;
+    let mut in_script = false;
+    let mut in_style = false;
+    let lower = html.to_lowercase();
+    let chars: Vec<char> = html.chars().collect();
+    let lower_chars: Vec<char> = lower.chars().collect();
+
+    let mut i = 0;
+    while i < chars.len() {
+        if !in_tag && chars[i] == '<' {
+            // Check for script/style start
+            let remaining: String = lower_chars[i..].iter().take(10).collect();
+            if remaining.starts_with("<script") {
+                in_script = true;
+            } else if remaining.starts_with("<style") {
+                in_style = true;
+            }
+            // Check for script/style end
+            if remaining.starts_with("</script") {
+                in_script = false;
+            } else if remaining.starts_with("</style") {
+                in_style = false;
+            }
+            in_tag = true;
+        } else if in_tag && chars[i] == '>' {
+            in_tag = false;
+        } else if !in_tag && !in_script && !in_style {
+            result.push(chars[i]);
+        }
+        i += 1;
+    }
+
+    // Clean up whitespace: collapse multiple newlines/spaces
+    let mut cleaned = String::new();
+    let mut prev_was_whitespace = false;
+    for ch in result.chars() {
+        if ch.is_whitespace() {
+            if !prev_was_whitespace {
+                cleaned.push(if ch == '\n' { '\n' } else { ' ' });
+            }
+            prev_was_whitespace = true;
+        } else {
+            cleaned.push(ch);
+            prev_was_whitespace = false;
+        }
+    }
+
+    cleaned.trim().to_string()
 }

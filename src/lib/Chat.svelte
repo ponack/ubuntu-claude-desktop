@@ -33,6 +33,23 @@
   let agentSteps = $state([]); // [{step, description, status}]
   let agentRunning = $state(false);
 
+  // URL import dialog
+  let showUrlImport = $state(false);
+  let importUrl = $state("");
+  let importingUrl = $state(false);
+
+  // Context window limits by model/provider
+  function getContextLimit(model, provider) {
+    if (!model) return 128000;
+    const m = model.toLowerCase();
+    if (m.includes("claude")) return 200000;
+    if (m.includes("gpt-4")) return 128000;
+    if (m.includes("gpt-3.5")) return 16000;
+    if (provider === "ollama") return 128000;
+    return 128000;
+  }
+  let contextLimit = $derived(getContextLimit(activeModel, activeProvider));
+
   // Pagination state
   const PAGE_SIZE = 50;
   let totalMessageCount = $state(0);
@@ -198,6 +215,31 @@
       activeModel = await invoke("get_model");
       activeProvider = await invoke("get_provider");
     } catch (e) { /* non-critical */ }
+  }
+
+  async function handleUrlImport() {
+    if (!importUrl.trim()) return;
+    importingUrl = true;
+    try {
+      const [title, content] = await invoke("import_url", { url: importUrl.trim() });
+      // Save to knowledge base
+      await invoke("create_knowledge_entry", {
+        title,
+        content,
+        sourceType: "url",
+        sourceUrl: importUrl.trim(),
+        filePath: null,
+        projectId: currentProjectId,
+      });
+      // Also inject into current input as context
+      inputText += (inputText ? "\n\n" : "") + `[Imported from ${importUrl.trim()}]\n${content.slice(0, 2000)}${content.length > 2000 ? "\n..." : ""}`;
+      showUrlImport = false;
+      importUrl = "";
+    } catch (e) {
+      alert("Failed to import URL: " + e);
+    } finally {
+      importingUrl = false;
+    }
   }
 
   async function loadPrompts() {
@@ -714,9 +756,14 @@ Be thorough in each step. Do not skip steps or combine them.`;
           </select>
         {/if}
         {#if tokenUsage && tokenUsage.total_tokens > 0}
-          <span class="token-usage" title="Input: {tokenUsage.input_tokens.toLocaleString()} | Output: {tokenUsage.output_tokens.toLocaleString()}">
-            {tokenUsage.total_tokens.toLocaleString()} tokens
-          </span>
+          {@const pct = Math.min((tokenUsage.total_tokens / contextLimit) * 100, 100)}
+          {@const barColor = pct > 90 ? 'var(--danger)' : pct > 70 ? '#e0a030' : 'var(--accent)'}
+          <div class="token-usage-bar" title="Input: {tokenUsage.input_tokens.toLocaleString()} | Output: {tokenUsage.output_tokens.toLocaleString()} | {tokenUsage.total_tokens.toLocaleString()} / {contextLimit.toLocaleString()} tokens ({pct.toFixed(1)}%)">
+            <div class="token-bar-track">
+              <div class="token-bar-fill" style="width: {pct}%; background: {barColor};"></div>
+            </div>
+            <span class="token-bar-label">{tokenUsage.total_tokens.toLocaleString()}</span>
+          </div>
         {/if}
         <div class="toolbar-actions">
           <button class="toolbar-btn" onclick={() => invoke("popout_conversation", { conversationId })} title="Open in new window" aria-label="Open in new window">
@@ -850,6 +897,11 @@ Be thorough in each step. Do not skip steps or combine them.`;
           <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/>
         </svg>
       </button>
+      <button class="attach-btn" onclick={() => (showUrlImport = !showUrlImport)} disabled={isStreaming} title="Import content from a URL" aria-label="Import URL">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+        </svg>
+      </button>
       <textarea
         bind:this={chatInput}
         bind:value={inputText}
@@ -887,6 +939,28 @@ Be thorough in each step. Do not skip steps or combine them.`;
     />
   {/if}
 </div>
+
+{#if showUrlImport}
+  <div class="variable-overlay" onclick={() => (showUrlImport = false)} role="dialog" aria-label="Import URL">
+    <div class="variable-dialog" onclick={(e) => e.stopPropagation()}>
+      <h3>Import Web Page</h3>
+      <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px;">Fetch a URL, extract text content, and save to knowledge base.</p>
+      <input
+        type="url"
+        bind:value={importUrl}
+        placeholder="https://example.com/article"
+        onkeydown={(e) => e.key === "Enter" && handleUrlImport()}
+        style="width: 100%; box-sizing: border-box; padding: 8px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; color: var(--text-primary); outline: none;"
+      />
+      <div class="variable-actions" style="margin-top: 12px;">
+        <button class="var-btn primary" onclick={handleUrlImport} disabled={!importUrl.trim() || importingUrl}>
+          {importingUrl ? "Importing..." : "Import"}
+        </button>
+        <button class="var-btn" onclick={() => (showUrlImport = false)}>Cancel</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if promptVariableDialog}
   <div class="variable-overlay" onclick={cancelPromptVariables} role="dialog" aria-label="Fill in prompt variables">
@@ -950,14 +1024,32 @@ Be thorough in each step. Do not skip steps or combine them.`;
     max-width: 200px;
   }
 
-  .token-usage {
-    font-size: 11px;
-    color: var(--text-muted);
-    background: var(--bg-tertiary);
-    padding: 3px 8px;
-    border-radius: 4px;
-    white-space: nowrap;
+  .token-usage-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     cursor: default;
+  }
+
+  .token-bar-track {
+    width: 60px;
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .token-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease, background 0.3s ease;
+    min-width: 1px;
+  }
+
+  .token-bar-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
   }
 
   .toolbar-actions {

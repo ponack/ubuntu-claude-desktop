@@ -178,6 +178,42 @@ impl Database {
             ).ok();
         }
 
+        // Migration: create knowledge & memory tables
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS conversation_memory (
+                id TEXT PRIMARY KEY,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_key ON conversation_memory(key);
+
+            CREATE TABLE IF NOT EXISTS knowledge_base (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                source_type TEXT NOT NULL DEFAULT 'manual',
+                source_url TEXT,
+                file_path TEXT,
+                project_id TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_project ON knowledge_base(project_id);
+
+            CREATE TABLE IF NOT EXISTS file_watches (
+                id TEXT PRIMARY KEY,
+                file_path TEXT NOT NULL UNIQUE,
+                knowledge_id TEXT NOT NULL,
+                last_modified TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (knowledge_id) REFERENCES knowledge_base(id) ON DELETE CASCADE
+            );"
+        ).ok();
+
         // Migration: create artifacts tables if missing
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS artifacts (
@@ -732,6 +768,223 @@ impl Database {
         self.conn.execute("DELETE FROM prompts WHERE id = ?1", params![id])?;
         Ok(())
     }
+
+    // --- Conversation Memory ---
+
+    pub fn list_memory_entries(&self) -> Result<Vec<MemoryEntry>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, key, value, created_at, updated_at FROM conversation_memory ORDER BY key ASC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(MemoryEntry {
+                id: row.get(0)?,
+                key: row.get(1)?,
+                value: row.get(2)?,
+                created_at: row.get(3)?,
+                updated_at: row.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn upsert_memory_entry(&self, key: &str, value: &str) -> Result<String, rusqlite::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        // Check if key exists
+        let existing: Option<String> = self.conn.query_row(
+            "SELECT id FROM conversation_memory WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        ).ok();
+        if let Some(id) = existing {
+            self.conn.execute(
+                "UPDATE conversation_memory SET value = ?1, updated_at = ?2 WHERE id = ?3",
+                params![value, &now, &id],
+            )?;
+            Ok(id)
+        } else {
+            let id = uuid::Uuid::new_v4().to_string();
+            self.conn.execute(
+                "INSERT INTO conversation_memory (id, key, value, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![&id, key, value, &now, &now],
+            )?;
+            Ok(id)
+        }
+    }
+
+    pub fn delete_memory_entry(&self, id: &str) -> Result<(), rusqlite::Error> {
+        self.conn.execute("DELETE FROM conversation_memory WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    // --- Knowledge Base ---
+
+    pub fn list_knowledge_entries(&self, project_id: Option<&str>) -> Result<Vec<KnowledgeEntry>, rusqlite::Error> {
+        match project_id {
+            Some(pid) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, title, content, source_type, source_url, file_path, project_id, enabled, created_at, updated_at FROM knowledge_base WHERE project_id = ?1 ORDER BY title ASC"
+                )?;
+                let rows = stmt.query_map(params![pid], |row| {
+                    Ok(KnowledgeEntry {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        content: row.get(2)?,
+                        source_type: row.get(3)?,
+                        source_url: row.get(4)?,
+                        file_path: row.get(5)?,
+                        project_id: row.get(6)?,
+                        enabled: row.get::<_, i32>(7)? != 0,
+                        created_at: row.get(8)?,
+                        updated_at: row.get(9)?,
+                    })
+                })?;
+                rows.collect()
+            }
+            None => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, title, content, source_type, source_url, file_path, project_id, enabled, created_at, updated_at FROM knowledge_base ORDER BY title ASC"
+                )?;
+                let rows = stmt.query_map([], |row| {
+                    Ok(KnowledgeEntry {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        content: row.get(2)?,
+                        source_type: row.get(3)?,
+                        source_url: row.get(4)?,
+                        file_path: row.get(5)?,
+                        project_id: row.get(6)?,
+                        enabled: row.get::<_, i32>(7)? != 0,
+                        created_at: row.get(8)?,
+                        updated_at: row.get(9)?,
+                    })
+                })?;
+                rows.collect()
+            }
+        }
+    }
+
+    pub fn insert_knowledge_entry(
+        &self, id: &str, title: &str, content: &str, source_type: &str,
+        source_url: Option<&str>, file_path: Option<&str>, project_id: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO knowledge_base (id, title, content, source_type, source_url, file_path, project_id, enabled, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9)",
+            params![id, title, content, source_type, source_url, file_path, project_id, &now, &now],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_knowledge_entry(
+        &self, id: &str, title: &str, content: &str, enabled: bool,
+    ) -> Result<(), rusqlite::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE knowledge_base SET title = ?1, content = ?2, enabled = ?3, updated_at = ?4 WHERE id = ?5",
+            params![title, content, if enabled { 1 } else { 0 }, &now, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_knowledge_entry(&self, id: &str) -> Result<(), rusqlite::Error> {
+        self.conn.execute("DELETE FROM file_watches WHERE knowledge_id = ?1", params![id])?;
+        self.conn.execute("DELETE FROM knowledge_base WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn get_enabled_knowledge_for_context(&self, project_id: Option<&str>) -> Result<Vec<KnowledgeEntry>, rusqlite::Error> {
+        match project_id {
+            Some(pid) => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, title, content, source_type, source_url, file_path, project_id, enabled, created_at, updated_at FROM knowledge_base WHERE enabled = 1 AND (project_id IS NULL OR project_id = ?1) ORDER BY title ASC"
+                )?;
+                let rows = stmt.query_map(params![pid], |row| {
+                    Ok(KnowledgeEntry {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        content: row.get(2)?,
+                        source_type: row.get(3)?,
+                        source_url: row.get(4)?,
+                        file_path: row.get(5)?,
+                        project_id: row.get(6)?,
+                        enabled: row.get::<_, i32>(7)? != 0,
+                        created_at: row.get(8)?,
+                        updated_at: row.get(9)?,
+                    })
+                })?;
+                rows.collect()
+            }
+            None => {
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, title, content, source_type, source_url, file_path, project_id, enabled, created_at, updated_at FROM knowledge_base WHERE enabled = 1 AND project_id IS NULL ORDER BY title ASC"
+                )?;
+                let rows = stmt.query_map([], |row| {
+                    Ok(KnowledgeEntry {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        content: row.get(2)?,
+                        source_type: row.get(3)?,
+                        source_url: row.get(4)?,
+                        file_path: row.get(5)?,
+                        project_id: row.get(6)?,
+                        enabled: row.get::<_, i32>(7)? != 0,
+                        created_at: row.get(8)?,
+                        updated_at: row.get(9)?,
+                    })
+                })?;
+                rows.collect()
+            }
+        }
+    }
+
+    pub fn update_knowledge_content(&self, id: &str, content: &str) -> Result<(), rusqlite::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE knowledge_base SET content = ?1, updated_at = ?2 WHERE id = ?3",
+            params![content, &now, id],
+        )?;
+        Ok(())
+    }
+
+    // --- File Watches ---
+
+    pub fn list_file_watches(&self) -> Result<Vec<FileWatch>, rusqlite::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, file_path, knowledge_id, last_modified, created_at FROM file_watches ORDER BY file_path ASC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(FileWatch {
+                id: row.get(0)?,
+                file_path: row.get(1)?,
+                knowledge_id: row.get(2)?,
+                last_modified: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn insert_file_watch(&self, id: &str, file_path: &str, knowledge_id: &str, last_modified: Option<&str>) -> Result<(), rusqlite::Error> {
+        let now = chrono::Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT OR REPLACE INTO file_watches (id, file_path, knowledge_id, last_modified, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, file_path, knowledge_id, last_modified, &now],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_file_watch(&self, id: &str) -> Result<(), rusqlite::Error> {
+        self.conn.execute("DELETE FROM file_watches WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn update_file_watch_modified(&self, id: &str, last_modified: &str) -> Result<(), rusqlite::Error> {
+        self.conn.execute(
+            "UPDATE file_watches SET last_modified = ?1 WHERE id = ?2",
+            params![last_modified, id],
+        )?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -807,6 +1060,38 @@ pub struct ExportedConversation {
 pub struct ExportedMessage {
     pub role: String,
     pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MemoryEntry {
+    pub id: String,
+    pub key: String,
+    pub value: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct KnowledgeEntry {
+    pub id: String,
+    pub title: String,
+    pub content: String,
+    pub source_type: String,
+    pub source_url: Option<String>,
+    pub file_path: Option<String>,
+    pub project_id: Option<String>,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FileWatch {
+    pub id: String,
+    pub file_path: String,
+    pub knowledge_id: String,
+    pub last_modified: Option<String>,
     pub created_at: String,
 }
 
@@ -1349,4 +1634,109 @@ pub fn open_artifact_external(content: String, language: String) -> Result<(), S
         .spawn()
         .map_err(|e| format!("Failed to open external editor: {}", e))?;
     Ok(())
+}
+
+// --- Conversation Memory ---
+
+#[tauri::command]
+pub fn get_memory_entries(state: tauri::State<AppState>) -> Result<Vec<MemoryEntry>, String> {
+    state.db.lock().unwrap().list_memory_entries().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_memory_entry(state: tauri::State<AppState>, key: String, value: String) -> Result<String, String> {
+    state.db.lock().unwrap().upsert_memory_entry(&key, &value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_memory_entry(state: tauri::State<AppState>, id: String) -> Result<(), String> {
+    state.db.lock().unwrap().delete_memory_entry(&id).map_err(|e| e.to_string())
+}
+
+// --- Knowledge Base ---
+
+#[tauri::command]
+pub fn get_knowledge_entries(state: tauri::State<AppState>, project_id: Option<String>) -> Result<Vec<KnowledgeEntry>, String> {
+    state.db.lock().unwrap().list_knowledge_entries(project_id.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_knowledge_entry(
+    state: tauri::State<AppState>,
+    title: String,
+    content: String,
+    source_type: String,
+    source_url: Option<String>,
+    file_path: Option<String>,
+    project_id: Option<String>,
+) -> Result<String, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    state.db.lock().unwrap().insert_knowledge_entry(
+        &id, &title, &content, &source_type,
+        source_url.as_deref(), file_path.as_deref(), project_id.as_deref(),
+    ).map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn update_knowledge_entry(state: tauri::State<AppState>, id: String, title: String, content: String, enabled: bool) -> Result<(), String> {
+    state.db.lock().unwrap().update_knowledge_entry(&id, &title, &content, enabled).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_knowledge_entry(state: tauri::State<AppState>, id: String) -> Result<(), String> {
+    state.db.lock().unwrap().delete_knowledge_entry(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn toggle_knowledge_entry(state: tauri::State<AppState>, id: String, enabled: bool) -> Result<(), String> {
+    let db = state.db.lock().unwrap();
+    let now = chrono::Utc::now().to_rfc3339();
+    db.conn.execute(
+        "UPDATE knowledge_base SET enabled = ?1, updated_at = ?2 WHERE id = ?3",
+        params![if enabled { 1 } else { 0 }, &now, &id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn import_file_to_knowledge(state: tauri::State<AppState>, path: String, project_id: Option<String>, watch: bool) -> Result<String, String> {
+    let file_path = std::path::Path::new(&path);
+    let title = file_path.file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Imported File".to_string());
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+    // Limit to 50K chars
+    let content = if content.len() > 50_000 { content[..50_000].to_string() } else { content };
+    let id = uuid::Uuid::new_v4().to_string();
+    let db = state.db.lock().unwrap();
+    db.insert_knowledge_entry(
+        &id, &title, &content, "file",
+        None, Some(&path), project_id.as_deref(),
+    ).map_err(|e| e.to_string())?;
+    if watch {
+        let watch_id = uuid::Uuid::new_v4().to_string();
+        let modified = std::fs::metadata(&path).ok()
+            .and_then(|m| m.modified().ok())
+            .map(|t| {
+                let dt: chrono::DateTime<chrono::Utc> = t.into();
+                dt.to_rfc3339()
+            });
+        db.insert_file_watch(&watch_id, &path, &id, modified.as_deref())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(id)
+}
+
+// --- File Watches ---
+
+#[tauri::command]
+pub fn get_file_watches(state: tauri::State<AppState>) -> Result<Vec<FileWatch>, String> {
+    state.db.lock().unwrap().list_file_watches().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_file_watch(state: tauri::State<AppState>, id: String) -> Result<(), String> {
+    state.db.lock().unwrap().delete_file_watch(&id).map_err(|e| e.to_string())
 }

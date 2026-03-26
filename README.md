@@ -291,12 +291,12 @@ linux-claude-desktop/
 - [x] Keyboard shortcuts for artifact panel (Ctrl+E edit, Ctrl+S save, Ctrl+F search, Alt+1/2/3 tabs)
 - [x] Artifact templates (HTML, React, Python, Mermaid, Markdown, SVG)
 
-### Phase 9 — Knowledge & Context
-- [ ] Local knowledge base (index local files/folders for RAG context)
-- [ ] File watcher (auto-update context when watched files change)
-- [ ] Web page import (fetch and summarize URLs as context)
-- [ ] Conversation memory (persistent facts Claude remembers across conversations)
-- [ ] Context window visualization (show token budget usage in real-time)
+### Phase 9 — Knowledge & Context ✅
+- [x] Context window visualization (progress bar with model-aware token limits)
+- [x] Conversation memory (persistent key-value facts injected into system prompt)
+- [x] Web page import (fetch URL, strip HTML, store as knowledge)
+- [x] Local knowledge base (manual, URL, or file import; project-scoped; enable/disable)
+- [x] File watcher (auto-update knowledge entries when watched files change)
 
 ### Phase 10 — Multi-Model & Comparison
 - [ ] Side-by-side model comparison (same prompt to multiple models)

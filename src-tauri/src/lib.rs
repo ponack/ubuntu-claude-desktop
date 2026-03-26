@@ -4,6 +4,7 @@ mod dbus_service;
 mod mcp;
 mod providers;
 
+use chrono;
 use db::Database;
 use std::sync::Mutex;
 use tauri::{
@@ -90,6 +91,46 @@ pub fn run() {
                         // Update last_run
                         let db = state.db.lock().unwrap();
                         let _ = db.update_scheduled_prompt_last_run(&sp.id);
+                    }
+                }
+            });
+
+            // Start file watcher background task (checks every 30s)
+            let app_handle3 = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    let state = app_handle3.state::<AppState>();
+                    let watches = {
+                        let db = state.db.lock().unwrap();
+                        db.list_file_watches().unwrap_or_default()
+                    };
+                    for watch in &watches {
+                        let path = std::path::Path::new(&watch.file_path);
+                        if !path.exists() {
+                            continue;
+                        }
+                        let current_modified = std::fs::metadata(path).ok()
+                            .and_then(|m| m.modified().ok())
+                            .map(|t| {
+                                let dt: chrono::DateTime<chrono::Utc> = t.into();
+                                dt.to_rfc3339()
+                            });
+                        let changed = match (&watch.last_modified, &current_modified) {
+                            (Some(old), Some(new)) => old != new,
+                            (None, Some(_)) => true,
+                            _ => false,
+                        };
+                        if changed {
+                            if let Ok(content) = std::fs::read_to_string(path) {
+                                let content = if content.len() > 50_000 { content[..50_000].to_string() } else { content };
+                                let db = state.db.lock().unwrap();
+                                let _ = db.update_knowledge_content(&watch.knowledge_id, &content);
+                                if let Some(ref modified) = current_modified {
+                                    let _ = db.update_file_watch_modified(&watch.id, modified);
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -185,6 +226,18 @@ pub fn run() {
             db::delete_artifact,
             db::save_artifact_to_file,
             db::open_artifact_external,
+            db::get_memory_entries,
+            db::save_memory_entry,
+            db::delete_memory_entry,
+            db::get_knowledge_entries,
+            db::create_knowledge_entry,
+            db::update_knowledge_entry,
+            db::delete_knowledge_entry,
+            db::toggle_knowledge_entry,
+            db::import_file_to_knowledge,
+            db::get_file_watches,
+            db::delete_file_watch,
+            api::import_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
