@@ -14,6 +14,7 @@
     { id: "projects", label: "Projects", icon: "M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" },
     { id: "integrations", label: "Integrations", icon: "M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" },
     { id: "schedules", label: "Schedules", icon: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 6v6l4 2" },
+    { id: "knowledge", label: "Knowledge", icon: "M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" },
     { id: "data", label: "Data & Usage", icon: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4 M12 3v12 M8 11l4 4 4-4" },
     { id: "about", label: "About", icon: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 16v-4 M12 8h.01" },
   ];
@@ -73,6 +74,25 @@
   let newSchedInterval = $state("3600000");
   let editingSched = $state(null);
 
+  // Memory
+  let memoryEntries = $state([]);
+  let newMemKey = $state("");
+  let newMemValue = $state("");
+
+  // Knowledge Base
+  let knowledgeEntries = $state([]);
+  let newKbTitle = $state("");
+  let newKbContent = $state("");
+  let newKbSourceType = $state("manual");
+  let newKbUrl = $state("");
+  let newKbProjectId = $state("");
+  let newKbWatch = $state(false);
+  let importingKbUrl = $state(false);
+  let editingKnowledge = $state(null);
+
+  // File Watches
+  let fileWatches = $state([]);
+
   // Token Usage Analytics
   let totalUsage = $state(null);
 
@@ -126,6 +146,9 @@
       await loadPrompts();
       await loadCustomCommands();
       await loadScheduledPrompts();
+      await loadMemoryEntries();
+      await loadKnowledgeEntries();
+      await loadFileWatches();
 
       try {
         const info = await invoke("get_app_info");
@@ -314,6 +337,93 @@
     editingSched = null; await loadScheduledPrompts();
   }
   async function removeScheduledPrompt(id) { await invoke("delete_scheduled_prompt", { id }); await loadScheduledPrompts(); }
+
+  // --- Memory ---
+  async function loadMemoryEntries() { try { memoryEntries = await invoke("get_memory_entries"); } catch (e) {} }
+  async function addMemoryEntry() {
+    if (!newMemKey.trim() || !newMemValue.trim()) return;
+    await invoke("save_memory_entry", { key: newMemKey.trim(), value: newMemValue.trim() });
+    newMemKey = ""; newMemValue = "";
+    await loadMemoryEntries();
+  }
+  async function removeMemoryEntry(id) {
+    await invoke("delete_memory_entry", { id });
+    await loadMemoryEntries();
+  }
+
+  // --- Knowledge Base ---
+  async function loadKnowledgeEntries() { try { knowledgeEntries = await invoke("get_knowledge_entries", { projectId: null }); } catch (e) {} }
+  async function addKnowledgeEntry() {
+    if (!newKbTitle.trim()) return;
+    if (newKbSourceType === "url") {
+      if (!newKbUrl.trim()) return;
+      importingKbUrl = true;
+      try {
+        const [title, content] = await invoke("import_url", { url: newKbUrl.trim() });
+        await invoke("create_knowledge_entry", {
+          title: newKbTitle.trim() || title,
+          content,
+          sourceType: "url",
+          sourceUrl: newKbUrl.trim(),
+          filePath: null,
+          projectId: newKbProjectId || null,
+        });
+      } catch (e) {
+        alert("Failed to import URL: " + e);
+        importingKbUrl = false;
+        return;
+      }
+      importingKbUrl = false;
+    } else {
+      if (!newKbContent.trim()) return;
+      await invoke("create_knowledge_entry", {
+        title: newKbTitle.trim(),
+        content: newKbContent.trim(),
+        sourceType: "manual",
+        sourceUrl: null,
+        filePath: null,
+        projectId: newKbProjectId || null,
+      });
+    }
+    newKbTitle = ""; newKbContent = ""; newKbUrl = ""; newKbSourceType = "manual"; newKbProjectId = ""; newKbWatch = false;
+    await loadKnowledgeEntries();
+  }
+  async function importFileToKnowledge() {
+    try {
+      const selected = await openDialog({
+        multiple: false,
+        filters: [{ name: "Text Files", extensions: ["txt", "md", "json", "yaml", "yml", "toml", "csv", "xml", "html", "py", "js", "ts", "rs", "go", "java", "c", "cpp", "h", "sh"] }],
+      });
+      if (!selected) return;
+      const path = typeof selected === "string" ? selected : selected.path;
+      await invoke("import_file_to_knowledge", { path, projectId: newKbProjectId || null, watch: newKbWatch });
+      await loadKnowledgeEntries();
+      await loadFileWatches();
+    } catch (e) {
+      alert("Failed to import file: " + e);
+    }
+  }
+  async function toggleKnowledgeEnabled(entry) {
+    await invoke("toggle_knowledge_entry", { id: entry.id, enabled: !entry.enabled });
+    await loadKnowledgeEntries();
+  }
+  async function saveKnowledgeEntry(entry) {
+    await invoke("update_knowledge_entry", { id: entry.id, title: entry.title, content: entry.content, enabled: entry.enabled });
+    editingKnowledge = null;
+    await loadKnowledgeEntries();
+  }
+  async function removeKnowledgeEntry(id) {
+    await invoke("delete_knowledge_entry", { id });
+    await loadKnowledgeEntries();
+    await loadFileWatches();
+  }
+
+  // --- File Watches ---
+  async function loadFileWatches() { try { fileWatches = await invoke("get_file_watches"); } catch (e) {} }
+  async function removeFileWatch(id) {
+    await invoke("delete_file_watch", { id });
+    await loadFileWatches();
+  }
 
   function formatInterval(ms) {
     if (ms >= 86400000) return `${Math.round(ms / 86400000)}d`;
@@ -717,6 +827,120 @@
             Add Schedule
           </button>
         </div>
+      </div>
+
+    <!-- KNOWLEDGE & CONTEXT -->
+    {:else if activeSection === "knowledge"}
+      <div class="section">
+        <h3>User Memory</h3>
+        <p class="section-hint">Persistent key/value facts injected into every conversation's system prompt.</p>
+
+        {#each memoryEntries as entry (entry.id)}
+          <div class="card item-card">
+            <div class="item-header">
+              <span class="item-name">{entry.key}</span>
+              <button class="btn-sm danger" onclick={() => removeMemoryEntry(entry.id)}>Delete</button>
+            </div>
+            <p class="item-preview">{entry.value}</p>
+          </div>
+        {/each}
+
+        <div class="card add-card">
+          <input type="text" bind:value={newMemKey} placeholder="Key (e.g. preferred_language)" />
+          <input type="text" bind:value={newMemValue} placeholder="Value (e.g. TypeScript)" />
+          <button class="btn-sm accent" onclick={addMemoryEntry} disabled={!newMemKey.trim() || !newMemValue.trim()}>
+            Add Memory
+          </button>
+        </div>
+
+        <h3>Knowledge Base</h3>
+        <p class="section-hint">Documents and content injected into conversation context when enabled. Supports manual entry, URL import, and file import.</p>
+
+        {#each knowledgeEntries as entry (entry.id)}
+          <div class="card item-card">
+            {#if editingKnowledge === entry.id}
+              <input type="text" bind:value={entry.title} placeholder="Title" />
+              <textarea bind:value={entry.content} placeholder="Content..." rows="4"></textarea>
+              <div class="item-actions">
+                <button class="btn-sm accent" onclick={() => saveKnowledgeEntry(entry)}>Save</button>
+                <button class="btn-sm" onclick={() => (editingKnowledge = null)}>Cancel</button>
+              </div>
+            {:else}
+              <div class="item-header">
+                <div class="item-name-group">
+                  <button
+                    class="toggle-btn"
+                    class:enabled={entry.enabled}
+                    onclick={() => toggleKnowledgeEnabled(entry)}
+                    title={entry.enabled ? "Enabled - click to disable" : "Disabled - click to enable"}
+                    aria-label={entry.enabled ? "Disable" : "Enable"}
+                  >
+                    {entry.enabled ? "ON" : "OFF"}
+                  </button>
+                  <span class="item-name">{entry.title}</span>
+                </div>
+                <div class="item-actions">
+                  <button class="btn-sm" onclick={() => (editingKnowledge = entry.id)}>Edit</button>
+                  <button class="btn-sm danger" onclick={() => removeKnowledgeEntry(entry.id)}>Delete</button>
+                </div>
+              </div>
+              <div class="item-badges">
+                <span class="badge">{entry.source_type}</span>
+                {#if entry.project_id}<span class="badge accent">project</span>{/if}
+                {#if entry.source_url}<span class="badge muted" title={entry.source_url}>URL</span>{/if}
+                {#if entry.file_path}<span class="badge muted" title={entry.file_path}>File</span>{/if}
+              </div>
+              <p class="item-preview">{entry.content.length > 150 ? entry.content.slice(0, 150) + '...' : entry.content}</p>
+            {/if}
+          </div>
+        {/each}
+
+        <div class="card add-card">
+          <div class="field">
+            <label>Source type</label>
+            <select bind:value={newKbSourceType}>
+              <option value="manual">Manual text</option>
+              <option value="url">Import from URL</option>
+            </select>
+          </div>
+          <input type="text" bind:value={newKbTitle} placeholder="Title" />
+          {#if newKbSourceType === "url"}
+            <input type="url" bind:value={newKbUrl} placeholder="https://example.com/article" />
+          {:else}
+            <textarea bind:value={newKbContent} placeholder="Content..." rows="3"></textarea>
+          {/if}
+          <select bind:value={newKbProjectId}>
+            <option value="">Global (all conversations)</option>
+            {#each projects as project (project.id)}
+              <option value={project.id}>{project.name}</option>
+            {/each}
+          </select>
+          <div class="kb-add-actions">
+            <button class="btn-sm accent" onclick={addKnowledgeEntry} disabled={!newKbTitle.trim() || (newKbSourceType === "manual" ? !newKbContent.trim() : !newKbUrl.trim()) || importingKbUrl}>
+              {importingKbUrl ? "Importing..." : "Add Entry"}
+            </button>
+            <button class="btn-sm" onclick={importFileToKnowledge} title="Import a local file">
+              Import File
+            </button>
+            <label class="watch-label">
+              <input type="checkbox" bind:checked={newKbWatch} />
+              <span>Watch for changes</span>
+            </label>
+          </div>
+        </div>
+
+        {#if fileWatches.length > 0}
+          <h3>File Watches</h3>
+          <p class="section-hint">Files being monitored for changes (checked every 30 seconds).</p>
+          {#each fileWatches as fw (fw.id)}
+            <div class="card item-card">
+              <div class="item-header">
+                <span class="item-preview" style="flex:1; font-family: 'JetBrains Mono', monospace; font-size: 11px;">{fw.file_path}</span>
+                <button class="btn-sm danger" onclick={() => removeFileWatch(fw.id)}>Stop</button>
+              </div>
+            </div>
+          {/each}
+        {/if}
       </div>
 
     <!-- DATA & USAGE -->
@@ -1175,4 +1399,46 @@
     font-weight: 500;
   }
   .about-link:hover { text-decoration: underline; }
+
+  /* --- Knowledge & Memory --- */
+  .toggle-btn {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    background: var(--bg-input);
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+  }
+  .toggle-btn.enabled {
+    background: rgba(78, 204, 163, 0.15);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .kb-add-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .watch-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    text-transform: none;
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+  .watch-label input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+  }
 </style>
