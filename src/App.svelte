@@ -32,6 +32,17 @@
         styleEl.textContent = customCss;
         document.head.appendChild(styleEl);
       }
+
+      const fontSize = await invoke("get_font_size");
+      document.documentElement.style.setProperty("--font-size-base", `${fontSize}px`);
+
+      const reduceMotion = await invoke("get_reduce_motion");
+      document.documentElement.setAttribute("data-reduce-motion", String(reduceMotion));
+
+      const highContrast = await invoke("get_high_contrast");
+      if (highContrast) {
+        document.documentElement.setAttribute("data-theme", "high-contrast");
+      }
     } catch (e) {
       console.error("Failed to load theme:", e);
     }
@@ -185,6 +196,7 @@
 
 <svelte:window onkeydown={handleGlobalKeydown} />
 
+<a href="#main-content" class="skip-link">Skip to main content</a>
 <div class="app-layout">
   <Sidebar
     {activeConversationId}
@@ -197,7 +209,7 @@
     refreshKey={sidebarRefresh}
     collapsed={currentView === "settings" || currentView === "compare"}
   />
-  <main class="main-content">
+  <main id="main-content" class="main-content">
     {#if currentView === "settings"}
       <Settings onClose={closeSettings} />
     {:else if currentView === "compare"}

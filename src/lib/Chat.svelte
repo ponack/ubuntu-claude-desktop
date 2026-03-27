@@ -750,6 +750,9 @@ Be thorough in each step. Do not skip steps or combine them.`;
 </script>
 
 <div class="chat-container">
+  <div role="status" aria-live="assertive" aria-atomic="true" class="sr-only">
+    {#if isStreaming}Generating response…{/if}
+  </div>
   <div class="chat-main" class:has-artifact={activeArtifactId}>
     {#if conversationId && messages.length > 0}
       <div class="chat-toolbar">
@@ -953,9 +956,9 @@ Be thorough in each step. Do not skip steps or combine them.`;
 </div>
 
 {#if showUrlImport}
-  <div class="variable-overlay" onclick={() => (showUrlImport = false)} role="dialog" aria-label="Import URL">
+  <div class="variable-overlay" onclick={() => (showUrlImport = false)} role="dialog" aria-modal="true" aria-labelledby="url-import-title">
     <div class="variable-dialog" onclick={(e) => e.stopPropagation()}>
-      <h3>Import Web Page</h3>
+      <h3 id="url-import-title">Import Web Page</h3>
       <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px;">Fetch a URL, extract text content, and save to knowledge base.</p>
       <input
         type="url"
@@ -975,9 +978,9 @@ Be thorough in each step. Do not skip steps or combine them.`;
 {/if}
 
 {#if promptVariableDialog}
-  <div class="variable-overlay" onclick={cancelPromptVariables} role="dialog" aria-label="Fill in prompt variables">
+  <div class="variable-overlay" onclick={cancelPromptVariables} role="dialog" aria-modal="true" aria-labelledby="var-dialog-title">
     <div class="variable-dialog" onclick={(e) => e.stopPropagation()}>
-      <h3>Fill in Variables</h3>
+      <h3 id="var-dialog-title">Fill in Variables</h3>
       <div class="variable-list">
         {#each promptVariableDialog.variables as variable, i}
           <label class="variable-field">

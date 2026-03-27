@@ -240,10 +240,10 @@
 </aside>
 
 {#if showUpdateDialog}
-  <div class="update-overlay" onclick={closeUpdateDialog} role="dialog" aria-label="Update dialog">
+  <div class="update-overlay" onclick={closeUpdateDialog} role="dialog" aria-modal="true" aria-labelledby="update-dialog-title">
     <div class="update-dialog" onclick={(e) => e.stopPropagation()}>
       <div class="update-dialog-header">
-        <h3>Update Available</h3>
+        <h3 id="update-dialog-title">Update Available</h3>
         <button class="update-close" onclick={closeUpdateDialog} aria-label="Close">&times;</button>
       </div>
 

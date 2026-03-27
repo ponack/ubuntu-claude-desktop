@@ -18,6 +18,7 @@
     { id: "routing", label: "Routing", icon: "M16 3h5v5 M4 20L21 3 M21 16v5h-5 M15 15l6 6 M4 4l5 5" },
     { id: "knowledge", label: "Knowledge", icon: "M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" },
     { id: "data", label: "Data & Usage", icon: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4 M12 3v12 M8 11l4 4 4-4" },
+    { id: "accessibility", label: "Accessibility", icon: "M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z M12 9a3 3 0 100 6 3 3 0 000-6z" },
     { id: "about", label: "About", icon: "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 16v-4 M12 8h.01" },
   ];
 
@@ -36,6 +37,11 @@
   let theme = $state("dark");
   let customCss = $state("");
   let updateInterval = $state("86400000");
+
+  // Accessibility settings
+  let fontSize = $state("14");
+  let reduceMotion = $state(false);
+  let highContrast = $state(false);
 
   // Status
   let saveStatus = $state(""); // "", "saving", "saved", "error"
@@ -187,6 +193,12 @@
       await loadRoutingRules();
       await loadModelPricing();
       await loadCostSummary();
+
+      try {
+        fontSize = await invoke("get_font_size");
+        reduceMotion = await invoke("get_reduce_motion");
+        highContrast = await invoke("get_high_contrast");
+      } catch (_) {}
 
       try {
         const info = await invoke("get_app_info");
@@ -534,6 +546,27 @@
   // Cost Summary
   async function loadCostSummary() { try { costSummary = await invoke("get_cost_summary"); } catch (e) {} }
 
+  // Accessibility save helpers
+  async function saveFontSize() {
+    await invoke("set_font_size", { size: fontSize });
+    document.documentElement.style.setProperty("--font-size-base", `${fontSize}px`);
+  }
+
+  async function saveReduceMotion() {
+    await invoke("set_reduce_motion", { enabled: reduceMotion });
+    document.documentElement.setAttribute("data-reduce-motion", String(reduceMotion));
+  }
+
+  async function saveHighContrast() {
+    await invoke("set_high_contrast", { enabled: highContrast });
+    if (highContrast) {
+      document.documentElement.setAttribute("data-theme", "high-contrast");
+    } else {
+      const t = await invoke("get_theme");
+      document.documentElement.setAttribute("data-theme", t);
+    }
+  }
+
   function formatInterval(ms) {
     if (ms >= 86400000) return `${Math.round(ms / 86400000)}d`;
     if (ms >= 3600000) return `${Math.round(ms / 3600000)}h`;
@@ -560,17 +593,21 @@
   <nav class="settings-nav">
     <div class="nav-header">
       <h2>Settings</h2>
-      <button class="back-btn" onclick={onClose} title="Back to chat">
+      <button class="back-btn" onclick={onClose} title="Back to chat" aria-label="Back to chat">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
         </svg>
       </button>
     </div>
+    <div role="tablist" aria-label="Settings sections">
     {#each sections as section (section.id)}
       <button
         class="nav-item"
         class:active={activeSection === section.id}
         onclick={() => activeSection = section.id}
+        role="tab"
+        aria-selected={activeSection === section.id}
+        aria-controls="settings-panel"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d={section.icon}/>
@@ -578,6 +615,7 @@
         <span>{section.label}</span>
       </button>
     {/each}
+    </div>
 
     {#if saveStatus}
       <div class="save-indicator" class:error={saveStatus === "error"}>
@@ -587,7 +625,7 @@
   </nav>
 
   <!-- Content area -->
-  <div class="settings-content">
+  <div id="settings-panel" class="settings-content" role="tabpanel">
     <!-- GENERAL -->
     {#if activeSection === "general"}
       <div class="section">
@@ -1274,6 +1312,54 @@
       </div>
 
     <!-- ABOUT -->
+    {:else if activeSection === "accessibility"}
+      <div class="section">
+        <h3>Text Size</h3>
+        <div class="card">
+          <div class="field">
+            <label for="font-size">Base Font Size</label>
+            <div class="font-size-row">
+              <input
+                id="font-size"
+                type="range"
+                min="11"
+                max="20"
+                step="1"
+                bind:value={fontSize}
+                onchange={saveFontSize}
+                aria-valuetext="{fontSize}px"
+              />
+              <span class="font-size-value">{fontSize}px</span>
+            </div>
+            <p class="hint">Controls the base text size throughout the app. Default: 14px.</p>
+          </div>
+        </div>
+
+        <h3>Motion & Contrast</h3>
+        <div class="card">
+          <div class="field toggle-field">
+            <div class="toggle-label">
+              <span>Reduce Motion</span>
+              <p class="hint">Disables animations and transitions.</p>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" bind:checked={reduceMotion} onchange={saveReduceMotion} aria-label="Reduce motion" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="field toggle-field">
+            <div class="toggle-label">
+              <span>High Contrast Mode</span>
+              <p class="hint">Switches to a high-contrast black/white theme for improved readability.</p>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" bind:checked={highContrast} onchange={saveHighContrast} aria-label="High contrast mode" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
     {:else if activeSection === "about"}
       <div class="section">
         <h3>About Linux Claude Desktop</h3>
@@ -1816,4 +1902,77 @@
   }
   .pricing-row { border-bottom: 1px solid var(--border-color, #333); }
   .pricing-row:last-child { border-bottom: none; }
+
+  /* --- Accessibility --- */
+  .font-size-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .font-size-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+  }
+  .font-size-value {
+    min-width: 36px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-align: right;
+  }
+  .toggle-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .toggle-field .toggle-label {
+    flex: 1;
+  }
+  .toggle-field .toggle-label span {
+    font-size: 13px;
+    color: var(--text-primary);
+  }
+  .toggle {
+    position: relative;
+    display: inline-flex;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+  }
+  .toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+  }
+  .toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--border);
+    border-radius: 22px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .toggle-slider::before {
+    content: "";
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    left: 3px;
+    top: 3px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+  }
+  .toggle input:checked + .toggle-slider {
+    background: var(--accent);
+  }
+  .toggle input:checked + .toggle-slider::before {
+    transform: translateX(18px);
+    background: #fff;
+  }
+  .toggle input:focus-visible + .toggle-slider {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 </style>
