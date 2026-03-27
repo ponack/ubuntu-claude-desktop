@@ -124,11 +124,17 @@
 
       const btn = document.createElement("button");
       btn.className = "copy-btn";
+      btn.type = "button";
+      btn.setAttribute("aria-label", "Copy code to clipboard");
       btn.textContent = "Copy";
       btn.addEventListener("click", async () => {
         await navigator.clipboard.writeText(codeText);
         btn.textContent = "Copied!";
-        setTimeout(() => (btn.textContent = "Copy"), 1500);
+        btn.setAttribute("aria-label", "Code copied");
+        setTimeout(() => {
+          btn.textContent = "Copy";
+          btn.setAttribute("aria-label", "Copy code to clipboard");
+        }, 1500);
       });
       block.style.position = "relative";
       block.appendChild(btn);
@@ -139,6 +145,8 @@
       if (lang && onPreviewArtifact && (ARTIFACT_LANGS.includes(lang) || lineCount >= 10)) {
         const previewBtn = document.createElement("button");
         previewBtn.className = "preview-btn";
+        previewBtn.type = "button";
+        previewBtn.setAttribute("aria-label", "Open code as artifact");
         previewBtn.textContent = "Artifact";
         previewBtn.addEventListener("click", () => {
           onPreviewArtifact({ code: codeText, language: lang || "text" });

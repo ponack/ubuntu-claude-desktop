@@ -61,7 +61,7 @@ body {
     Ubuntu, Cantarell, sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-base, 14px);
   line-height: 1.5;
 }
 
@@ -90,4 +90,97 @@ input, textarea {
   font-family: inherit;
   font-size: inherit;
   color: var(--text-primary);
+}
+
+/* ── Accessibility ─────────────────────────────────────────── */
+
+/* Keyboard focus ring — only shows on keyboard nav, not mouse */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+textarea:focus:not(:focus-visible),
+select:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Visually hidden but available to screen readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip-to-content link for keyboard users */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 9999;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 4px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 8px;
+}
+
+/* Honour OS reduce-motion preference and manual toggle */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+[data-reduce-motion="true"] *, [data-reduce-motion="true"] *::before, [data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* Honour OS high-contrast preference automatically */
+@media (prefers-contrast: more) {
+  :root, [data-theme="dark"] {
+    --bg-primary: #000000;
+    --bg-secondary: #0a0a0a;
+    --bg-input: #000000;
+    --text-primary: #ffffff;
+    --text-secondary: #eeeeee;
+    --text-muted: #cccccc;
+    --accent: #ffff00;
+    --border: #ffffff;
+  }
+}
+
+/* High contrast theme */
+[data-theme="high-contrast"] {
+  --bg-primary: #000000;
+  --bg-secondary: #0d0d0d;
+  --bg-tertiary: #1a1a1a;
+  --bg-input: #000000;
+  --text-primary: #ffffff;
+  --text-secondary: #eeeeee;
+  --text-muted: #cccccc;
+  --accent: #ffff00;
+  --accent-hover: #ffee00;
+  --border: #ffffff;
+  --user-bubble: #003380;
+  --assistant-bubble: #000000;
+  --scrollbar-thumb: #ffffff;
+  --scrollbar-track: transparent;
+  --danger: #ff4444;
+  --success: #00ff88;
+  --code-bg: #111111;
+  --code-inline-bg: #111111;
 }

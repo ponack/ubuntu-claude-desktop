@@ -1489,6 +1489,51 @@ pub fn set_theme(state: tauri::State<AppState>, theme: String) -> Result<(), Str
 }
 
 #[tauri::command]
+pub fn get_font_size(state: tauri::State<AppState>) -> Result<String, String> {
+    state.db.lock().unwrap()
+        .get_setting("font_size")
+        .map_err(|e| e.to_string())
+        .map(|v| v.unwrap_or_else(|| "14".to_string()))
+}
+
+#[tauri::command]
+pub fn set_font_size(state: tauri::State<AppState>, size: String) -> Result<(), String> {
+    state.db.lock().unwrap().set_setting("font_size", &size).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_reduce_motion(state: tauri::State<AppState>) -> Result<bool, String> {
+    let v = state.db.lock().unwrap()
+        .get_setting("reduce_motion")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    Ok(v == "true")
+}
+
+#[tauri::command]
+pub fn set_reduce_motion(state: tauri::State<AppState>, enabled: bool) -> Result<(), String> {
+    state.db.lock().unwrap()
+        .set_setting("reduce_motion", if enabled { "true" } else { "false" })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_high_contrast(state: tauri::State<AppState>) -> Result<bool, String> {
+    let v = state.db.lock().unwrap()
+        .get_setting("high_contrast")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    Ok(v == "true")
+}
+
+#[tauri::command]
+pub fn set_high_contrast(state: tauri::State<AppState>, enabled: bool) -> Result<(), String> {
+    state.db.lock().unwrap()
+        .set_setting("high_contrast", if enabled { "true" } else { "false" })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_system_prompt(state: tauri::State<AppState>) -> Result<Option<String>, String> {
     state.db.lock().unwrap().get_setting("system_prompt").map_err(|e| e.to_string())
 }
