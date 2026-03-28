@@ -90,12 +90,17 @@ get_wid() {
 # Click at coordinates relative to the app window (avoids screen-position guessing)
 win_click() {
   local rel_x=$1 rel_y=$2
+  xdotool windowactivate --sync "$WID"
   xdotool mousemove --window "$WID" "$rel_x" "$rel_y"
   sleep 0.1
   xdotool click 1
 }
 
-key() { xdotool key --window "$WID" "$@"; }
+# windowactivate ensures the WebView processes the shortcut (key --window alone is unreliable)
+key() {
+  xdotool windowactivate --sync "$WID"
+  xdotool key "$@"
+}
 
 snap() {
   local name="${PREFIX}${1}"
