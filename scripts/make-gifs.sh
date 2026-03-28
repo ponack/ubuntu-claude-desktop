@@ -35,14 +35,6 @@ MAX_COLORS=128      # GIF palette size (max 256)
 DELAY_VIEW=0.9
 DELAY_DIALOG=0.6
 
-# ─── Sidebar button positions (shared with take-screenshots.sh) ───────────────
-SB_X=28
-SB_CHAT_Y=638
-SB_COMPUTERUSE_Y=676
-SB_COMPARE_Y=714
-SB_EXTENSIONS_Y=752
-SB_SETTINGS_Y=790
-
 # ─── Settings nav layout ──────────────────────────────────────────────────────
 NAV_X=156
 NAV_Y0=80
@@ -121,28 +113,22 @@ echo ""
 echo "Recording scenes…"
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
-focus_win() {
-  xdotool windowraise "$WID"
-  xdotool windowfocus --sync "$WID"
-}
-
 win_click() {
   local rel_x=$1 rel_y=$2
-  focus_win
+  xdotool windowraise "$WID"
+  xdotool windowfocus --sync "$WID"
   xdotool mousemove --window "$WID" "$rel_x" "$rel_y"
   sleep 0.1
   xdotool click 1
+  sleep 0.1
 }
 
-# Raise + focus before every key so the WebView processes the shortcut
-key() {
-  focus_win
-  xdotool key "$@"
-}
-type_text() {
-  focus_win
-  xdotool type --clearmodifiers --delay 60 "$1"
-}
+# Click the sidebar logo area to give the WebView mouse-click focus.
+focus_webview() { win_click 28 26; }
+
+# Send a key. Caller must call focus_webview or win_click first.
+key()       { xdotool key "$@"; }
+type_text() { xdotool type --clearmodifiers --delay 60 "$1"; }
 
 # Convert raw ffmpeg recording to optimised GIF
 to_gif() {
@@ -201,8 +187,9 @@ record_scene() {
 # ─── Scene definitions ────────────────────────────────────────────────────────
 
 scene_chat_stream() {
-  win_click "$SB_X" "$SB_CHAT_Y"   # click Chat sidebar button (also focuses WebView)
-  sleep 0.5
+  focus_webview
+  key "Escape"
+  sleep 0.3
   # Click the message input (centred at bottom of chat area)
   win_click 760 750
   sleep 0.2
@@ -213,9 +200,10 @@ scene_chat_stream() {
 }
 
 scene_theme_switch() {
-  win_click "$SB_X" "$SB_SETTINGS_Y"   # open Settings
+  focus_webview
+  key "ctrl+comma"
   sleep "$DELAY_VIEW"
-  win_click "$NAV_X" "$(nav_y 1)"      # Appearance
+  win_click "$NAV_X" "$(nav_y 1)"   # Appearance
   sleep "$DELAY_VIEW"
   # Click Light theme option (first theme card / left column)
   # Theme grid: padding ~20px, card ~160px wide, first card centre x ~100 (offset from content area x=56)
@@ -224,13 +212,15 @@ scene_theme_switch() {
   # Click back to default dark theme (second card)
   win_click 336 300
   sleep 0.5
-  win_click "$SB_X" "$SB_CHAT_Y"   # return to chat
+  focus_webview
+  key "Escape"   # return to chat
 }
 
 scene_command_palette() {
-  win_click "$SB_X" "$SB_CHAT_Y"   # go to chat + focus WebView
-  sleep 0.3
-  key "ctrl+p"                      # WebView is focused from the click above
+  focus_webview
+  key "Escape"
+  sleep 0.2
+  key "ctrl+p"
   sleep "$DELAY_DIALOG"
   type_text "new chat"
   sleep 0.6
@@ -238,11 +228,9 @@ scene_command_palette() {
 }
 
 scene_comparison() {
-  win_click "$SB_X" "$SB_COMPARE_Y"
+  focus_webview
+  key "ctrl+shift+m"
   sleep "$DELAY_VIEW"
-  # Brief click to show both model panels are live
-  win_click 640 400
-  sleep 0.5
 }
 
 # ─── Run scenes ───────────────────────────────────────────────────────────────

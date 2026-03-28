@@ -30,17 +30,6 @@ DELAY_VIEW=0.9      # after switching views
 DELAY_DIALOG=0.6    # after opening dialogs/modals
 DELAY_LAUNCH=3.5    # waiting for app to appear (used if you launch via APP_BIN below)
 
-# ─── Sidebar button positions (collapsed = 56px wide, button centre x=28) ─────
-# Footer buttons (from bottom): 12px padding + 36px buttons + 2px margin-bottom
-#   Settings=790, Extensions=752, Compare=714, ComputerUse=676, Chat=638
-# ── Tune if buttons shift (e.g. update banner shown) ──
-SB_X=28
-SB_CHAT_Y=638
-SB_COMPUTERUSE_Y=676
-SB_COMPARE_Y=714
-SB_EXTENSIONS_Y=752
-SB_SETTINGS_Y=790
-
 # ─── Settings nav layout (derived from CSS) ───────────────────────────────────
 # Settings panel starts at x=56 (sidebar) + 200px nav → content at x=256
 # Nav centre x = 56 + 100 = 156
@@ -97,25 +86,25 @@ get_wid() {
   echo ""
 }
 
-# Click at coordinates relative to the app window (avoids screen-position guessing)
-focus_win() {
-  xdotool windowraise "$WID"
-  xdotool windowfocus --sync "$WID"
-}
-
 win_click() {
   local rel_x=$1 rel_y=$2
-  focus_win
+  xdotool windowraise "$WID"
+  xdotool windowfocus --sync "$WID"
   xdotool mousemove --window "$WID" "$rel_x" "$rel_y"
   sleep 0.1
   xdotool click 1
+  sleep 0.1
 }
 
-# Raise + focus before every key so the WebView processes the shortcut
-key() {
-  focus_win
-  xdotool key "$@"
+# Click the sidebar logo area — safe, non-interactive, always visible regardless of view.
+# Clicking this gives the WebView mouse-click focus so subsequent xdotool key events land.
+focus_webview() {
+  win_click 28 26
 }
+
+# Send a key shortcut. Caller must call focus_webview (or any win_click) first —
+# re-running windowfocus here would reset the click-focus the WebView just acquired.
+key() { xdotool key "$@"; }
 
 snap() {
   local name="${PREFIX}${1}"
@@ -145,14 +134,17 @@ echo "Capturing…"
 
 # ─── 01: Chat ─────────────────────────────────────────────────────────────────
 echo "  → 01 Chat"
-win_click "$SB_X" "$SB_CHAT_Y"   # click Chat in sidebar (also gives WebView focus)
+focus_webview
+key "Escape"     # close any open view (noop if already in chat)
+sleep 0.2
+key "ctrl+n"     # new chat
 sleep 0.3
 snap "01-chat.png"
 
 # ─── 02: Settings → General ───────────────────────────────────────────────────
 echo "  → 02 Settings > General"
-win_click "$SB_X" "$SB_SETTINGS_Y"   # click Settings gear in sidebar
-# General is the default active tab — no further click needed
+focus_webview
+key "ctrl+comma"
 snap "02-settings-general.png"
 
 # ─── 03: Settings → Appearance ────────────────────────────────────────────────
@@ -167,17 +159,20 @@ snap "04-settings-accessibility.png"
 
 # ─── 05: Comparison view ──────────────────────────────────────────────────────
 echo "  → 05 Comparison"
-win_click "$SB_X" "$SB_COMPARE_Y"
+focus_webview
+key "ctrl+shift+m"
 snap "05-comparison.png"
 
 # ─── 06: Computer Use ─────────────────────────────────────────────────────────
 echo "  → 06 Computer Use"
-win_click "$SB_X" "$SB_COMPUTERUSE_Y"
+focus_webview
+key "ctrl+shift+u"
 snap "06-computer-use.png"
 
 # ─── 07: Extensions catalog ───────────────────────────────────────────────────
 echo "  → 07 Extensions"
-win_click "$SB_X" "$SB_EXTENSIONS_Y"
+focus_webview
+key "ctrl+shift+e"
 snap "07-extensions.png"
 
 # ─── 08: Extensions install dialog (GitHub card) ─────────────────────────────
@@ -194,13 +189,14 @@ echo "  → 08 Extensions install dialog"
 win_click "$INSTALL_BTN_X" "$INSTALL_BTN_Y"
 sleep "$DELAY_DIALOG"
 snap "08-extensions-install.png"
-key "Escape"   # close dialog — WebView already focused from prior win_click
+key "Escape"   # close dialog
 
 # ─── 09: Command palette ──────────────────────────────────────────────────────
 echo "  → 09 Command palette"
-win_click "$SB_X" "$SB_CHAT_Y"   # go to chat + focus WebView
+focus_webview
+key "Escape"
 sleep 0.2
-key "ctrl+p"                      # WebView is focused, shortcut fires reliably
+key "ctrl+p"
 sleep "$DELAY_DIALOG"
 snap "09-command-palette.png"
 key "Escape"
