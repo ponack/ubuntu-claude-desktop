@@ -1925,3 +1925,8 @@ pub fn stop_recording_and_transcribe(model_path: String) -> Result<String, Strin
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
+
+#[tauri::command]
+pub fn check_node_available() -> bool {
+    command_exists("node") && command_exists("npx")
+}
