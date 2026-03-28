@@ -30,29 +30,39 @@
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/empty-state-light.png" alt="Welcome screen (light theme)" width="700" />
+  <img src="screenshots/01-chat.png" alt="Chat view" width="700" />
 </p>
-<p align="center"><em>Welcome screen — light theme with conversation history</em></p>
+<p align="center"><em>Streaming chat with markdown rendering, syntax highlighting, and conversation sidebar</em></p>
 
 <p align="center">
-  <img src="screenshots/empty-state-dark.png" alt="Welcome screen (dark theme)" width="700" />
+  <img src="screenshots/02-sidebar.png" alt="Sidebar" width="700" />
 </p>
-<p align="center"><em>Welcome screen — dark theme</em></p>
+<p align="center"><em>Conversation history with search, project folders, and quick navigation</em></p>
 
 <p align="center">
-  <img src="screenshots/sidebar.png" alt="Chat conversation" width="700" />
+  <img src="screenshots/03-settings.png" alt="Settings — General" width="700" />
 </p>
-<p align="center"><em>Chat with markdown rendering and conversation sidebar</em></p>
+<p align="center"><em>Tabbed settings — provider, model, system prompt, MCP servers, voice, and accessibility</em></p>
 
 <p align="center">
-  <img src="screenshots/settings.png" alt="Settings — General" width="700" />
+  <img src="screenshots/06-comparison.png" alt="Model comparison" width="700" />
 </p>
-<p align="center"><em>Tabbed settings with auto-save — provider, model, and system prompt</em></p>
+<p align="center"><em>Side-by-side model comparison with response grading</em></p>
 
 <p align="center">
-  <img src="screenshots/themes.png" alt="Settings — Appearance" width="700" />
+  <img src="screenshots/07-computer-use.png" alt="Computer Use" width="700" />
 </p>
-<p align="center"><em>Appearance settings — theme, color schemes, and custom CSS</em></p>
+<p align="center"><em>Computer Use — Claude controls your desktop with live screenshot feedback</em></p>
+
+<p align="center">
+  <img src="screenshots/08-extensions.png" alt="Desktop Extensions" width="700" />
+</p>
+<p align="center"><em>Desktop Extensions — one-click install for popular MCP servers</em></p>
+
+<p align="center">
+  <img src="screenshots/10-command-palette.png" alt="Command palette" width="700" />
+</p>
+<p align="center"><em>Command palette (Ctrl+P) — jump to any conversation, view, or action</em></p>
 
 ---
 
