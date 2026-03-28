@@ -279,6 +279,7 @@ pub fn run() {
             computer_use::check_computer_use_available,
             computer_use::run_computer_use,
             computer_use::stop_computer_use,
+            api::check_node_available,
             api::check_tts_available,
             api::check_stt_available,
             api::speak_text,

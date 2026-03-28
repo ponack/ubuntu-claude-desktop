@@ -10,6 +10,7 @@
   import Settings from "./lib/Settings.svelte";
   import ComparisonView from "./lib/ComparisonView.svelte";
   import ComputerUseView from "./lib/ComputerUseView.svelte";
+  import ExtensionsView from "./lib/ExtensionsView.svelte";
   import CommandPalette from "./lib/CommandPalette.svelte";
 
   let currentView = $state("chat");
@@ -155,6 +156,14 @@
     currentView = "chat";
   }
 
+  function openExtensions() {
+    currentView = "extensions";
+  }
+
+  function closeExtensions() {
+    currentView = "chat";
+  }
+
   function handleGlobalKeydown(e) {
     // Ctrl+N: New chat
     if (e.ctrlKey && e.key === "n") {
@@ -187,6 +196,13 @@
       else openComputerUse();
       return;
     }
+    // Ctrl+Shift+E: Toggle extensions
+    if (e.ctrlKey && e.shiftKey && e.key === "E") {
+      e.preventDefault();
+      if (currentView === "extensions") closeExtensions();
+      else openExtensions();
+      return;
+    }
     // Ctrl+L: Focus chat input
     if (e.ctrlKey && e.key === "l") {
       e.preventDefault();
@@ -199,12 +215,16 @@
       const search = document.querySelector(".search-box input");
       if (search) search.focus();
     }
-    // Escape: Close palette, settings, or clear search
+    // Escape: Close palette, settings, extensions, computer use, or clear search
     if (e.key === "Escape") {
       if (showCommandPalette) {
         showCommandPalette = false;
       } else if (currentView === "settings") {
         closeSettings();
+      } else if (currentView === "computer-use") {
+        closeComputerUse();
+      } else if (currentView === "extensions") {
+        closeExtensions();
       }
     }
   }
@@ -221,10 +241,11 @@
     {openSettings}
     {openComparison}
     {openComputerUse}
+    {openExtensions}
     onBackToChat={onNewChat}
     {currentView}
     refreshKey={sidebarRefresh}
-    collapsed={currentView === "settings" || currentView === "compare" || currentView === "computer-use"}
+    collapsed={currentView === "settings" || currentView === "compare" || currentView === "computer-use" || currentView === "extensions"}
   />
   <main id="main-content" class="main-content">
     {#if currentView === "settings"}
@@ -233,6 +254,8 @@
       <ComparisonView onClose={closeComparison} />
     {:else if currentView === "computer-use"}
       <ComputerUseView onClose={closeComputerUse} />
+    {:else if currentView === "extensions"}
+      <ExtensionsView onClose={closeExtensions} />
     {:else}
       <Chat
         conversationId={activeConversationId}
