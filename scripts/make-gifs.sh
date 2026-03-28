@@ -159,7 +159,7 @@ record_scene() {
     $action_fn
     sleep "$LEAD_OUT"
     peek --stop
-    # Peek saves to ~/Videos or prompts for location — user handles the file
+    sleep 3   # give Peek time to encode and save before starting next scene
     echo "    ✓ saved by Peek (move to ${OUT}/${name})"
   else
     ffmpeg -y \
@@ -189,14 +189,11 @@ record_scene() {
 scene_chat_stream() {
   focus_webview
   key "Escape"
-  sleep 0.3
-  # Click the message input (centred at bottom of chat area)
-  win_click 760 750
   sleep 0.2
-  type_text "What is the Linux philosophy?"
+  key "ctrl+n"     # new chat — automatically focuses the message input
   sleep 0.4
-  key "Return"
-  sleep 2.5   # wait for streaming response to begin
+  type_text "What is the Linux philosophy?"
+  # No Return: avoids making a live API call which could error or hang
 }
 
 scene_theme_switch() {
@@ -234,10 +231,10 @@ scene_comparison() {
 }
 
 # ─── Run scenes ───────────────────────────────────────────────────────────────
-record_scene "01-chat-stream"      7  scene_chat_stream
+record_scene "01-chat-stream"      4  scene_chat_stream
 record_scene "02-theme-switch"     6  scene_theme_switch
-record_scene "03-command-palette"  5  scene_command_palette
-record_scene "04-comparison"       4  scene_comparison
+record_scene "03-command-palette"  4  scene_command_palette
+record_scene "04-comparison"       3  scene_comparison
 
 # ─── Summary ──────────────────────────────────────────────────────────────────
 echo ""
