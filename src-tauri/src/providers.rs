@@ -41,6 +41,7 @@ impl ProviderType {
 }
 
 /// Resolved provider config for sending a message
+#[allow(dead_code)]
 pub struct ResolvedProvider {
     pub provider_type: ProviderType,
     pub api_key: String,
